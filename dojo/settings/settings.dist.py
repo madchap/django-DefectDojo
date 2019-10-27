@@ -18,6 +18,7 @@ env = environ.Env(
     DD_SESSION_COOKIE_SECURE=(bool, False),
     DD_CSRF_COOKIE_SECURE=(bool, False),
     DD_SECURE_BROWSER_XSS_FILTER=(bool, False),
+    DD_SECURE_CONTENT_TYPE_NOSNIFF=(bool, False),
     DD_TIME_ZONE=(str, 'UTC'),
     DD_LANG=(str, 'en-us'),
     DD_WKHTMLTOPDF=(str, '/usr/local/bin/wkhtmltopdf'),
@@ -317,6 +318,9 @@ SECURE_SSL_REDIRECT = env('DD_SECURE_SSL_REDIRECT')
 # If True, the SecurityMiddleware sets the X-XSS-Protection: 1;
 # mode=block header on all responses that do not already have it.
 SECURE_BROWSER_XSS_FILTER = env('DD_SECURE_BROWSER_XSS_FILTER')
+
+# If True, the SecurityMiddleware sets the X-Content-Type-Options: nosniff;
+SECURE_CONTENT_TYPE_NOSNIFF = env('DD_SECURE_CONTENT_TYPE_NOSNIFF')
 
 # Whether to use HTTPOnly flag on the session cookie.
 # If this is set to True, client-side JavaScript will not to be able to access the session cookie.
