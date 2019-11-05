@@ -1,0 +1,132 @@
+{
+    "data": [{
+            "id": "725021",
+            "type": "report",
+            "attributes": {
+                "title": "Impersonation Attack Due to Broken Link on https://codeship.com/ about CodeShip's CEO/Founder",
+                "state": "informative",
+                "created_at": "2019-10-29T21:31:44.500Z",
+                "vulnerability_information": "__Hello Team,__\n\nDuring my regular testing, I found a broken link that could've allowed a malicious attacker to impersonate or misguide others or may attack/scam your end-users. The results can be more dangerous. And as because it is clearly mentioned on your website, generally the user will believe that this is authenticated.\n\nOn https://codeship.com/team there's a section of Team, where you have listed the details of the team behind CodeShip. There's a profile of `MORITZ PLASSNIG` (CEO, Founder) along with the hyperlink to his LinkedIn handle. And the LinkedIn link which is broken over there.\n\n__Proof of Concept__:\n\n1.) Visit https://codeship.com/team\n2.) Scroll down for Mr. Moritz's profile and click on the LinkedIn icon below to his name and position.\n3.) Upon clicking on that LinkedIn icon and you'll be redirected to the profile which I have takeover for proof of concept. named as 'Md Israil'.\n\n{F621037}\n\n## Impact\n\n__Issue:__ This happened because Mr. Moritz either deleted his LinkedIn handle or changed the username. Not much you could do about that, but I thought I'd report it because it could be used to attack/scam the users who have no idea about this.\n\n__Fix:__ You can either advise me to delete the account or change the code and update that with the [valid link] (https://www.linkedin.com/in/moritzplassnig/) to Mr. Moritz's profile.\n\n> ```html\n<span><a href=\"https://www.linkedin.com/profile/view?id=53000722\" target=\"_blank\"><i class=\"icon fa fa-linkedin\"></i></a></span>\n\nWaiting for a positive response from your side.\n\n__Best__,\nMohammed Israil",
+                "triaged_at": null,
+                "closed_at": "2019-10-30T13:46:24.121Z",
+                "last_reporter_activity_at": "2019-11-01T19:10:53.489Z",
+                "first_program_activity_at": "2019-10-30T13:46:05.151Z",
+                "last_program_activity_at": "2019-10-30T16:14:04.262Z",
+                "bounty_awarded_at": "2019-10-30T15:25:00.045Z",
+                "swag_awarded_at": null,
+                "disclosed_at": null,
+                "reporter_agreed_on_going_public_at": null,
+                "issue_tracker_reference_id": "PRODSEC-245",
+                "last_public_activity_at": "2019-11-01T19:10:53.489Z",
+                "last_activity_at": "2019-11-01T19:10:53.489Z",
+                "source": null
+            },
+            "relationships": {
+                "reporter": {
+                    "data": {
+                        "id": "100308",
+                        "type": "user",
+                        "attributes": {
+                            "reputation": 1566,
+                            "signal": 3.00403225806452,
+                            "impact": 13.0701754385965,
+                            "username": "villagelad",
+                            "name": "Mohammed Israil",
+                            "disabled": false,
+                            "created_at": "2016-08-10T19:03:16.817Z",
+                            "profile_picture": {
+                                "62x62": "https://profile-photos.hackerone-user-content.com/variants/000/100/308/32d8f321a3af5db5a7bcd5a934a82ae5f4058ced_original.jpg/3afcb5c896247e7ee8ada31b1c1eb8657e22241f911093acfe4ec7e97a3a959a",
+                                "82x82": "https://profile-photos.hackerone-user-content.com/variants/000/100/308/32d8f321a3af5db5a7bcd5a934a82ae5f4058ced_original.jpg/eb31823a4cc9f6b6bb4db930ffdf512533928a68a4255fb50a83180281a60da5",
+                                "110x110": "https://profile-photos.hackerone-user-content.com/variants/000/100/308/32d8f321a3af5db5a7bcd5a934a82ae5f4058ced_original.jpg/692237eb9691fbde92a17174cdb809a788ace02bc77c72803f17d32b41e4f213",
+                                "260x260": "https://profile-photos.hackerone-user-content.com/variants/000/100/308/32d8f321a3af5db5a7bcd5a934a82ae5f4058ced_original.jpg/cf1e4b5d44005cb61fab358dd6968415f20545de5f055ba4ed33ca4387948cdc"
+                            },
+                            "bio": "",
+                            "website": null,
+                            "location": "India",
+                            "hackerone_triager": false
+                        }
+                    }
+                },
+                "program": {
+                    "data": {
+                        "id": "13351",
+                        "type": "program",
+                        "attributes": {
+                            "handle": "cloudbees",
+                            "policy": "CloudBees takes security very seriously and investigates all reported vulnerabilities. We want to keep our software and services safe for everybody. We welcome working with the security community to resolve valid issues promptly.\r\n\r\n# Bounty Program\r\nCloudBees offers monetary bounties for reports of qualifying security vulnerabilities. Reward amounts will vary based on the severity of the report, and eligibility is at our sole discretion. Not all submitted items will be in scope for a reward. Duplicate issues will be merged.\r\n\r\nOur determination of what is in scope or not is final. Awarded bounties are not negotiable, including the decision to not pay out a bounty.\r\n\r\n# Program Scope\r\n\r\nCloudBees oversees a large scope of products. Some projects fall under the scope of the open source Jenkins project, and as such will be handled by that security team following their documented processes at https://jenkins.io/security/. Any submissions to the CloudBees HackerOne program that fall under the scope of the Jenkins project will be forwarded to that team for further analysis, and follow-up will be handled via that team. Such reported vulnerabilities MAY be subject to bounties at the discretion of the CloudBees security team.\r\n\r\n# Within the CloudBees portfolio, the following products are in scope:\r\n\r\n* CloudBees DevOptics (SaaS service and associated plugins)\r\n* CloudBees Core and associated plugins\r\n* CloudBees CodeShip (SaaS service - app.codeship.com)\r\n* CloudBees central authentication (aka console/GrandCentral)\r\n* CloudBees web properties (www.cloudbees.com, go.cloudbees.com)\r\n\r\n**Please note that just because you find the same issue within multiple domains in our portfolio, it does not mean we will treat them as separate issues.  Please don't open multiple tickets for the same issue for each domain, as we will just mark them as duplicates**\r\n\r\n# Areas of highest interest\r\n\r\nWe are most interested in, and will pay higher bounties for:\r\n* OWASP top 10 related issues, such as demonstrated XSS\r\n* Anything that allows bypass or gamification of the authentication system (aside from brute forcing or DoS style attacks)\r\n* Things that would expose private user data in ways that are not intended.\r\n* Ability to modify or inject content into any of our public web properties\r\n\r\n# Areas of lowest interest\r\n\r\nWe are not particularly interested in:\r\n* Blatant dumps of information from scanning tools. Do not dump your burp suite findings with links to public pages about why that finding is bad. You must demonstrate an actual exploitable issue.\r\n* CVEs for versions of software you may identify we are running unless you can point to an actual vulnerability\r\n* Reports of best practices you feel CloudBees should be following\r\n* Reports involving low or medium issues surrounding our authentication/login system (including things like best practices, rate limiting, etc). We are in the process of replacing this system with a 3rd party tool, so our efforts are going towards that and not fixing anything other than high or critical vulnerabilities.  Including, but not limited to: rate limiting features, captcha bypass techniques, session/cookie management related items on things like email change, logout, password reset, etc.\r\n\r\n# Common Reports we get that are out of scope\r\n* Any and all reports regarding password complexity\r\n* DKIM/SPF/DMARC/etc settings for email of domains we own\r\n* Clickjacking on pages with no sensitive actions.\r\n* Unauthenticated/logout/login CSRF.\r\n* Attacks requiring MITM or physical access to a user's device.\r\n* Previously known vulnerable libraries without a working Proof of Concept.\r\n* Comma Separated Values (CSV) injection without demonstrating a vulnerability.\r\n* Missing best practices in SSL/TLS configuration.\r\n* Any activity that could lead to the disruption of our service (DoS).\r\n* Content spoofing and text injection issues without showing an attack vector/without being able to modify HTML/CSS\r\n* Open redirects unless there's an actual security issue associated with it. Manually changing the URL in a redirect is not sufficient cause for a security issue. Tampering with an existing redirect that legitimately tricks an actual user to a different site IS valid.\r\n\r\n# While researching we ask that you do not perform the following:\r\n* Any type of Denial of Service\r\n* Spamming/Messaging\r\n* Social Engineering attempts on CloudBees employees or contractors\r\n* Any physical attempts to access to CloudBees offices\r\n\r\n# Disclosure Policy\r\n* As this is a private program, please do not discuss this program or any vulnerabilities (even resolved ones) outside of the program without express consent from the organization.\r\n* Follow HackerOne's [disclosure guidelines](https://www.hackerone.com/disclosure-guidelines).\r\n\r\n# What to expect from us\r\n* Our goal is to triage and accept your deny your report within two US business days.  From there, we triage internally with our engineering teams to take scope of severity, business impact, and how we fit any potential fixes into our work queue. Please note that most reported items are not business critical, and as such it takes some time for our teams to determine exactly the scope of the issue, and how it will be addressed.  Once we have a good idea of how it will be fixed and the overall severity, we will pay a bounty. Our preference is to pay a bounty at the same time we validate resolution of the issue as it allows us to make sure the amount of the bounty is appropriately tied to the actual problem.\r\n* In some cases the item filed may be (by our team) considered more of a bug than a security issue. We may still elect to fix and pay out bounties for such items, but there is no particular timeline for addressing them as our product management teams will be scoping them into the product plan details.\r\n* While we appreciate your reports, asking the status of when we will respond, fix the item, or post a bounty will not receive a response. Repeated attempts at asking for status of such reports may result in banning from continued participation in our program.\r\n\r\nThis program page may be updated at any time.",
+                            "created_at": "2016-05-30T19:46:07.255Z",
+                            "updated_at": "2019-11-03T08:46:15.745Z"
+                        }
+                    }
+                },
+                "severity": {
+                    "data": {
+                        "id": "551746",
+                        "type": "severity",
+                        "attributes": {
+                            "rating": "low",
+                            "author_type": "Team",
+                            "user_id": 754822,
+                            "created_at": "2019-10-30T13:46:05.129Z"
+                        }
+                    }
+                },
+                "weakness": {
+                    "data": {
+                        "id": "26",
+                        "type": "weakness",
+                        "attributes": {
+                            "name": "Improper Access Control - Generic",
+                            "description": "The software does not restrict or incorrectly restricts access to a resource from an unauthorized actor.",
+                            "external_id": "cwe-284",
+                            "created_at": "2017-01-05T01:51:19.000Z"
+                        }
+                    }
+                },
+                "structured_scope": {
+                    "data": {
+                        "id": "18600",
+                        "type": "structured-scope",
+                        "attributes": {
+                            "asset_type": "URL",
+                            "asset_identifier": "codeship.com",
+                            "eligible_for_bounty": true,
+                            "eligible_for_submission": true,
+                            "instruction": "You can signup for a free codeship account here: https://www.cloudbees.com/get-started\n\nPlease note that any abuse of the build system that violates the terms of service (https://codeship.com/tos), including attempts to prolong builds or perform activities like cryptocurrency mining will result in being blocked from furtuer use of the service.",
+                            "max_severity": "critical",
+                            "created_at": "2018-12-27T14:44:12.130Z",
+                            "updated_at": "2019-07-30T11:16:05.408Z",
+                            "reference": "",
+                            "confidentiality_requirement": "high",
+                            "integrity_requirement": "high",
+                            "availability_requirement": "medium"
+                        }
+                    }
+                },
+                "bounties": {
+                    "data": [{
+                            "id": "167130",
+                            "type": "bounty",
+                            "attributes": {
+                                "amount": "100.00",
+                                "bonus_amount": "0.00",
+                                "awarded_amount": "100.00",
+                                "awarded_bonus_amount": "0.00",
+                                "awarded_currency": "USD",
+                                "created_at": "2019-10-30T15:25:00.038Z"
+                            }
+                        }
+                    ]
+                },
+                "custom_field_values": {
+                    "data": []
+                }
+            }
+        }
+    ],
+    "links": {
+        "self": "https://api.hackerone.com/v1/reports?filter%5Bprogram%5D%5B%5D=cloudbees",
+        "next": "https://api.hackerone.com/v1/reports?filter%5Bprogram%5D%5B%5D=cloudbees&page%5Bnumber%5D=2",
+        "last": "https://api.hackerone.com/v1/reports?filter%5Bprogram%5D%5B%5D=cloudbees&page%5Bnumber%5D=4"
+    }
+}
