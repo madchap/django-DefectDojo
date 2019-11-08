@@ -30,13 +30,24 @@ class HackerOneJSONParser(object):
                     severity = "Info" 
             except:
                 severity = "Info"           
-            # severity = "Info"
             cwe = content["relationships"]["weakness"]["data"]["attributes"]["external_id"]
-            references = '\n'.join("https://hackerone.com/reports/"+content["id"])
+            
             try:
-                mitigation = "fixed in : " + content["attributes"]["closed_at"]
+                references = ("[https://hackerone.com/reports/"+content["id"] + "](http://)" + 
+                "\n" + "[https://cloudbees.atlassian.net/browse/" + content["attributes"]["issue_tracker_reference_id"] + "](http://)")
             except:
-                mitigation = "N/A"
+                references = ("[https://hackerone.com/reports/" + content["id"] + "](http://)")
+
+            if content["attributes"]["state"] in ["triaged","new"]:
+                active=True
+            else:
+                active=False
+            
+            try:
+                cwe = int(content["relationships"]["weakness"]["data"]["attributes"]["external_id"][4:])
+            except:
+                cwe = 0
+
             dupe_key = hashlib.md5(str(references + title).encode('utf-8')).hexdigest()
             if dupe_key in self.dupes:
                 finding = self.dupes[dupe_key]
@@ -49,13 +60,15 @@ class HackerOneJSONParser(object):
                 finding = Finding(
                     title=title,
                     test=test,
-                    active=False,
+                    active=True,
                     verified=False,
                     description=description,
                     severity=severity,
                     numerical_severity=Finding.get_numerical_severity(severity),
-                    mitigation=mitigation,
+                    mitigation="See description",
+                    impact="No impact provided",
                     references=references,
+                    cwe=cwe,
                     dynamic_finding=True,)
                 finding.unsaved_endpoints = list()
                 self.dupes[dupe_key] = finding
