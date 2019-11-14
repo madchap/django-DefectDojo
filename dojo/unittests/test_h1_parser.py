@@ -3,7 +3,7 @@ from dojo.tools.h1.parser import HackerOneJSONParser
 from dojo.models import Test
 
 
-class TestHackeOneParser(TestCase):
+class TestHackerOneParser(TestCase):
 
     def test_parse_without_file_has_no_findings(self):
         parser = HackerOneJSONParser(None, Test())
@@ -22,4 +22,4 @@ class TestHackeOneParser(TestCase):
     def test_parse_file_with_multiple_vuln_has_multiple_finding(self):
         testfile = open("dojo/unittests/scans/h1/data_many.json")
         parser = HackerOneJSONParser(testfile, Test())
-        self.assertEqual(3, len(parser.items))
+        self.assertEqual(2, len(parser.items))
