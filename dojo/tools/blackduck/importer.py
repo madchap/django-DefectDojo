@@ -7,6 +7,7 @@ from dojo.tools.blackduck.model import BlackduckFinding
 import csv
 import io
 import zipfile
+import re
 
 
 class Importer(ABC):
@@ -54,12 +55,13 @@ class BlackduckImporter(Importer):
         security_issues = dict()
         try:
             with zipfile.ZipFile(str(report)) as zip:
-                for file_name in zip.namelist():
-                    if file_name.endswith('files.csv'):
-                        with io.TextIOWrapper(zip.open(file_name)) as f:
+                for full_file_name in zip.namelist():
+                    file_name = full_file_name.split("/")[-1]
+                    if 'source' in file_name:
+                        with io.TextIOWrapper(zip.open(full_file_name)) as f:
                             files = self.__partition_by_project_id(f)
-                    elif file_name.endswith('security.csv'):
-                        with io.TextIOWrapper(zip.open(file_name)) as f:
+                    elif 'security' in file_name:
+                        with io.TextIOWrapper(zip.open(full_file_name)) as f:
                             security_issues = self.__partition_by_project_id(f)
 
         except Exception as e:
@@ -80,14 +82,27 @@ class BlackduckImporter(Importer):
                     path = file_entry_dict.get('Path')
                     archive_context = file_entry_dict.get('Archive context')
                     if archive_context:
-                        locations.add("{}{}".format(archive_context, path[1:]))
+                        full_path = "{}{}".format(archive_context, path[1:])
                     else:
-                        locations.add(path)
+                        full_path = path
+
+                    # 4000 character limit on this field
+                    total_len = len(full_path)
+                    for location in list(locations):
+                        # + 2 for the ", " that will be added.
+                        total_len += (len(location) + 2)
+                    if total_len < 4000:
+                        locations.add(full_path)
+                    else:
+                        break
 
             for issue in security_issues[project_id]:
                 security_issue_dict = dict(issue)
+                cve = self.get_cve(security_issue_dict.get("Vulnerability id")).upper()
+                location = ", ".join(locations)
+
                 yield BlackduckFinding(
-                    security_issue_dict.get('Vulnerability id'),
+                    cve,
                     security_issue_dict.get('Description'),
                     security_issue_dict.get('Security Risk'),
                     security_issue_dict.get('Impact'),
@@ -103,12 +118,16 @@ class BlackduckImporter(Importer):
                     security_issue_dict.get('Remediation target date'),
                     security_issue_dict.get('Remediation actual date'),
                     security_issue_dict.get('Remediation comment'),
-                    ', '.join(locations)
+                    location
                 )
 
     def __partition_by_project_id(self, csv_file):
         records = csv.DictReader(csv_file)
         findings = defaultdict(set)
         for record in records:
-            findings[record.get('Project id')].add(frozenset(record.items()))
+            findings[record.get('Component id')].add(frozenset(record.items()))
         return findings
+
+    def get_cve(self, vuln_id):
+        cve_search = re.search("CVE-\d{4}-\d{4,7}", vuln_id, re.IGNORECASE)
+        return cve_search.group(0) if cve_search else vuln_id
