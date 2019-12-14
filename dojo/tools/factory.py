@@ -66,10 +66,12 @@ from dojo.tools.hadolint.parser import HadolintParser
 from dojo.tools import SCAN_SONARQUBE_API
 from dojo.tools.aqua.parser import AquaJSONParser
 from dojo.tools.xanitizer.parser import XanitizerXMLParser
+from dojo.tools.trivy.parser import TrivyParser
 
 __author__ = 'Jay Paz'
 
 
+# TODO change conditional search of the parser to the mapping
 def import_parser_factory(file, test, active, verified, scan_type=None):
     if scan_type is None:
         scan_type = test.test_type.name
@@ -215,6 +217,8 @@ def import_parser_factory(file, test, active, verified, scan_type=None):
         parser = AquaJSONParser(file, test)
     elif scan_type == 'Xanitizer Scan':
         parser = XanitizerXMLParser(file, test)
+    elif scan_type == 'Trivy Scan':
+        parser = TrivyParser(file, test)
     else:
         raise ValueError('Unknown Test Type')
 

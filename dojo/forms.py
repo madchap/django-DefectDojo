@@ -359,6 +359,7 @@ class ImportScanForm(forms.Form):
                          ("Testssl Scan", "Testssl Scan"),
                          ("Hadolint Dockerfile check", "Hadolint Dockerfile check"),
                          ("Aqua Scan", "Aqua Scan"),
+                         ("Trivy Scan", "Trivy Scan"),
                          ("Xanitizer Scan", "Xanitizer Scan"))
 
     SORTED_SCAN_TYPE_CHOICES = sorted(SCAN_TYPE_CHOICES, key=lambda x: x[1])
