@@ -24,7 +24,7 @@ django-watson==1.5.2
 Django==2.2.4
 djangorestframework==3.9.4
 gunicorn==19.9.0
-html2text==2018.1.9
+html2text==2019.9.26
 humanize==0.5.1
 jira==2.0.0
 lxml==4.3.3
