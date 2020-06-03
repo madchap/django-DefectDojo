@@ -27,7 +27,7 @@
     "metismenu": "~3.0.6",
     "moment": "^2.26.0",
     "morris.js": "morrisjs/morris.js",
-    "startbootstrap-sb-admin-2": "1.0.7"
+    "startbootstrap-sb-admin-2": "4.0.7"
   },
   "engines": {
     "yarn": ">= 1.0.0"
