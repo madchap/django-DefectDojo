@@ -26,7 +26,7 @@ docker-compose up
 docker-compose logs initializer | grep "Admin password:"
 ```
 
-Navigate to <http://localhost:8080>.
+Navigate to <http://localhost:8080>. Get your [login credentials](https://github.com/DefectDojo/django-DefectDojo/blob/master/DOCKER.md#access-the-application).
 
 ## Documentation
 
