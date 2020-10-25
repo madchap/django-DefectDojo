@@ -22,6 +22,8 @@ cd django-DefectDojo
 docker-compose build
 # running
 docker-compose up
+# obtain admin credentials
+docker-compose logs initializer | grep "Admin password:"
 ```
 
 Navigate to <http://localhost:8080>. Get your [login credentials](https://github.com/DefectDojo/django-DefectDojo/blob/master/DOCKER.md#access-the-application).
@@ -47,8 +49,15 @@ We've also created some example
 [workflows](https://defectdojo.readthedocs.io/en/latest/workflows.html) that
 should give you an idea of how to use DefectDojo for your own team.
 
+## REST APIs
+
+> ** Deprecation notice ** apiv1 is deprecated and EOS is on 12-31-2020. EOL is planned for 06-30-2021.
+> Please move on to apiv2 and raise issues for any unsupported operations.
+
+Defectdojo can be accessed through a Swagger REST API. Please see [the API documentation](https://defectdojo.readthedocs.io/en/latest/api-v2-docs.html) or the in-app Swagger documentation.
+
 ## Client APIs and wrappers
-This section presents different ways to programmatically interact with defectdojo APIs.
+This section presents different ways to programmatically interact with DefectDojo APIs.
 
 See [Wrappers](WRAPPERS.md)
 
@@ -100,7 +109,7 @@ Project Moderators can help you with pull requests or feedback on dev ideas.
 * Jannik Jürgens
 * [Fred Blaise](https://www.linkedin.com/in/fredblaise/)
 * Saurabh kumar
-* Cody Maffucci 
+* Cody Maffucci
 * Pascal Trovatelli / [Sopra Steria](https://www.soprasteria.com/)
 
 ## Hall of Fame
