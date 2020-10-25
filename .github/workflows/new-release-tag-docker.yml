@@ -39,6 +39,7 @@ jobs:
           draft: true
           prerelease: false
   job-build-matrix:
+    needs: tag-and-release
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
