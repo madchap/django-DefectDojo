@@ -1,0 +1,56 @@
+name: Docker build and push
+
+on:
+  create:
+    tags:
+      # on any tags, at least for now.
+      # will sadly not get triggered by 1st workflow https://github.community/t/action-does-not-trigger-another-on-push-tag-action/17148/5
+      # looking for workaround. Meanwhile, push by hand.
+      - '*'
+
+  #  workflow_dispatch:
+  #  inputs:
+  #    # for tests -- or need to come up with an override if needed
+  #    release_number:
+  #      description: 'Release version (x.y.z format)'
+  #      required: true
+
+jobs:
+  job-build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        # ref should be the tag name
+        run: echo "::set-output name=matrix::{\"docker-image\":[\"django\",\"nginx\"],\"docker-tag\":[\"latest\",\"${GITHUB_REF#refs/*/}\"]}"
+  job-build-and-push:
+    needs: job-build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.job-build-matrix.outputs.matrix)}}
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v2
+      - id: set-repo-org
+        run: echo ::set-output name=repoorg::${GITHUB_REPOSITORY%%/*}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push images
+        env:
+          REPO_ORG: ${{ steps.set-repo-org.outputs.repoorg }}
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ${{ env.REPO_ORG }}/defectdojo-${{ matrix.docker-image}}:${{ matrix.docker-tag }}
+          file: ./Dockerfile.${{ matrix.docker-image }}
+          context: .
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}

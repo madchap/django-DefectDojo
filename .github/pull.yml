@@ -1,0 +1,8 @@
+version: "1"
+rules:
+  - base: master
+    upstream: DefectDojo:master
+    mergeMethod: hardreset
+  - base: dev
+    upstream: DefectDojo:dev
+    mergeMethod: hardreset
