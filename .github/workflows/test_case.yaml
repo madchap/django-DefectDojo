@@ -19,4 +19,4 @@ jobs:
         env:                        
           REPO_ORG: ${{ steps.set-repo-org.outputs.repoorg }}
         run:                        
-        echo ${{ $env.REPO_ORG }}
+          echo ${{ $env.REPO_ORG }}
