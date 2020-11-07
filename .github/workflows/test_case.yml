@@ -17,5 +17,4 @@ jobs:
       - name: echo repo and check case
         env:
           REPO_ORG: ${{ steps.set-repo-org.outputs.repoorg }}
-        run:
-          echo ${{ $env.REPO_ORG }}
+        run: echo ${{ $env.REPO_ORG }}
