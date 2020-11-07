@@ -1,22 +1,21 @@
-name: Test case                    
-                                     
+name: Test case
 on:
-  workflow_dispatch:                
-    inputs:                         
+  workflow_dispatch:
+    inputs:
         # the actual branch that can be chosen on the UI is made irrelevant by further steps
         # because someone will forget one day to change it.
-      release_number:               
+      release_number:
         description: 'Release version (x.y.z format)'
-        required: true              
-                                     
-jobs:                               
-  tag-and-release:                  
-    runs-on: ubuntu-latest          
-    steps:                          
-      - id: set-repo-org            
+        required: true
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - id: set-repo-org
         run: echo ::set-output name=repoorg::${GITHUB_REPOSITORY%%/*} | tr '[:upper:]' '[:lower:]'
       - name: echo repo and check case
-        env:                        
+        env:
           REPO_ORG: ${{ steps.set-repo-org.outputs.repoorg }}
-        run:                        
+        run:
           echo ${{ $env.REPO_ORG }}
