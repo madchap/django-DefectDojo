@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: set-repo-org
-        run: echo ::set-output name=repoorg::${GITHUB_REPOSITORY%%/*} | tr '[:upper:]' '[:lower:]'
+        run: echo ::set-output name=repoorg::${GITHUB_REPOSITORY%%/*}
       - name: echo repo and check case
         env:
           REPO_ORG: ${{ steps.set-repo-org.outputs.repoorg }}
