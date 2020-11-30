@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from dojo.utils import auto_delete_engagements
+from dojo.cb_utils import auto_delete_engagements
 
 """
 This command will iterate over engagements and delete them if they match required criteria
