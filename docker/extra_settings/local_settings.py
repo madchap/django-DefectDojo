@@ -3,9 +3,10 @@
 
 from celery.schedules import crontab
 
-
+# add our own cb_tasks.py for tasks to get registered
+CELERY_IMPORTS = ('dojo.cb_tasks')
 CELERY_BEAT_SCHEDULE['auto-delete-engagements'] = {
-    'task': 'dojo.tasks.auto_delete_engagements',
+    'task': 'dojo.cb_tasks.auto_delete_engagements',
     'schedule': crontab(hour=9, minute=30)
 }
 
