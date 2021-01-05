@@ -268,6 +268,9 @@ class System_Settings(models.Model):
     drive_folder_ID = models.CharField(max_length=100, blank=True)
     enable_google_sheets = models.BooleanField(default=False, null=True, blank=True)
     email_address = models.EmailField(max_length=100, blank=True)
+    risk_acceptance_form_default_days = models.IntegerField(null=True, blank=True, default=180, help_text="Default expiry period for risk acceptance form.")
+    risk_acceptance_notify_before_expiration = models.IntegerField(null=True, blank=True, default=10,
+                    verbose_name="Risk acceptance expiration heads up days", help_text="Notify X days before risk acceptance expires. Leave empty to disable.")
 
     from dojo.middleware import System_Settings_Manager
     objects = System_Settings_Manager()
@@ -456,6 +459,7 @@ class Product_Type(models.Model):
     #         Q(severity="Medium") |
     #         Q(severity="Low")).count()
 
+    # only used by bulk risk acceptance api
     @property
     def unaccepted_open_findings(self):
         engagements = Engagement.objects.filter(product__prod_type=self)
@@ -670,6 +674,9 @@ class Product(models.Model):
     # tags = TagField(blank=True, force_lowercase=True, help_text="Add tags that help describe this product. Choose from the list or add new tags. Press Enter key to add.")
     tags = TagField(blank=True, force_lowercase=True, help_text="Add tags that help describe this product. Choose from the list or add new tags. Press Enter key to add.")
 
+    enable_simple_risk_acceptance = models.BooleanField(default=False, help_text=_('Allows simple risk acceptance by checking/unchecking a checkbox.'))
+    enable_full_risk_acceptance = models.BooleanField(default=True, help_text=_('Allows full risk acceptanc using a risk acceptance form, expiration date, uploaded proof, etc.'))
+
     def __unicode__(self):
         return self.name
 
@@ -782,6 +789,10 @@ class Product(models.Model):
         bc = [{'title': self.__unicode__(),
                'url': reverse('view_product', args=(self.id,))}]
         return bc
+
+    @property
+    def enable_risk_acceptance(self):
+        return self.enable_full_risk_acceptance or self.enable_simple_risk_acceptance
 
     @property
     def get_product_type(self):
@@ -1090,6 +1101,7 @@ class Engagement(models.Model):
                 'url': reverse('view_engagement', args=(self.id,))}]
         return bc
 
+    # only used by bulk risk acceptance api
     @property
     def unaccepted_open_findings(self):
         accepted_findings = Finding.objects.filter(risk_acceptance__engagement=self)
@@ -1381,9 +1393,14 @@ class Test(models.Model):
                 'url': reverse('view_test', args=(self.id,))}]
         return bc
 
-    def verified_finding_count(self):
-        return self.finding_set.filter(verified=True).count()
+    # def verified_finding_count(self):
+    #     # return self.finding_set.filter(verified=True).count()
+    #     # the above executes 1 query for each test, which is slow
+    #     # for now do the counting in python but using the prefetched finding_set
+    #     # this is only used in the metrics, which need a refactoring anyway
+    #     return sum(1 for finding in self.finding_set.all() if finding.verified)
 
+    # only used by bulk risk acceptance api
     @property
     def unaccepted_open_findings(self):
         accepted_findings = Finding.objects.filter(risk_acceptance__engagement=self.engagement)
@@ -1466,6 +1483,13 @@ class Finding(models.Model):
     date = models.DateField(default=get_current_date,
                             verbose_name="Date",
                             help_text="The date the flaw was discovered.")
+
+    sla_start_date = models.DateField(
+                            blank=True,
+                            null=True,
+                            verbose_name="SLA Start Date",
+                            help_text="The date used as start date for SLA calculation. Set by expiring risk acceptances. Empty by default, causing a fallback to 'date'.")
+
     cwe = models.IntegerField(default=0, null=True, blank=True,
                               verbose_name="CWE",
                               help_text="The CWE number associated with this flaw.")
@@ -1782,6 +1806,7 @@ class Finding(models.Model):
         from django.urls import reverse
         return reverse('view_finding', args=[str(self.id)])
 
+    # only used by bulk risk acceptance api
     @classmethod
     def unaccepted_open_findings(cls):
         return cls.objects.filter(active=True, verified=True, duplicate=False, risk_acceptance__isnull=True)
@@ -1800,9 +1825,10 @@ class Finding(models.Model):
             from dojo.utils import get_current_user
             user = get_current_user()
             simple_risk_acceptance = Risk_Acceptance.objects.create(
-                    owner=user,
+                    owner=user if user else User.objects.first(),
                     name=Finding.SIMPLE_RISK_ACCEPTANCE_NAME,
-                    compensating_control='These findings are accepted using a simple risk acceptance without expiration date, '
+                    decision=Risk_Acceptance.TREATMENT_ACCEPT,
+                    decision_details='These findings are accepted using a simple risk acceptance without expiration date, '
                     'approval document or compensating control information. Unaccept and use full risk acceptance if you '
                     'need to have more control over those fields.'
             )
@@ -1816,7 +1842,7 @@ class Finding(models.Model):
         self.active = False
         self.save()
 
-    def simple_risk_unaccept(self):
+    def risk_unaccept(self):
         # removing from ManyToMany will not fail for non-existing entries
         self.get_simple_risk_acceptance().accepted_findings.remove(self)
         # risk acceptance no longer in place, so reactivate, but only when it makes sense
@@ -1829,15 +1855,20 @@ class Finding(models.Model):
             self.active = True
             self.save()
 
+    # @property
+    # def is_simple_risk_accepted(self):
+
+    #     if self.get_simple_risk_acceptance(create=False) is not None:
+    #         return self.get_simple_risk_acceptance().accepted_findings.filter(id=self.id).exists()
+    #         # print('exists: ', exists)
+    #         # return exists
+
+    #     return False
+
     @property
-    def is_simple_risk_accepted(self):
-
-        if self.get_simple_risk_acceptance(create=False) is not None:
-            return self.get_simple_risk_acceptance().accepted_findings.filter(id=self.id).exists()
-            # print('exists: ', exists)
-            # return exists
-
-        return False
+    def active_risk_acceptance(self):
+        # risk_acceptance_set is normally prefetched so works better than count() or exists()
+        return next((ra for ra in self.risk_acceptance_set.all() if not ra.is_expired), None)
 
     def compute_hash_code(self):
         if hasattr(settings, 'HASHCODE_FIELDS_PER_SCANNER') and hasattr(settings, 'HASHCODE_ALLOWS_NULL_CWE') and hasattr(settings, 'HASHCODE_ALLOWED_FIELDS'):
@@ -1995,6 +2026,7 @@ class Finding(models.Model):
         return self.title
 
     def status(self):
+        ra = self.active_risk_acceptance
         status = []
         if self.under_review:
             status += ['Under Review']
@@ -2012,21 +2044,34 @@ class Finding(models.Model):
             status += ['Out Of Scope']
         if self.duplicate:
             status += ['Duplicate']
-        if len(self.risk_acceptance_set.all()) > 0:  # this is normally prefetched so works better than count() or exists()
+        if ra:
             status += ['Risk Accepted']
         if not len(status):
             status += ['Initial']
 
         return ", ".join([str(s) for s in status])
 
-    @property
-    def age(self):
+    def _age(self, start_date):
         if self.mitigated:
-            diff = self.mitigated.date() - self.date
+            diff = self.mitigated.date() - start_date
         else:
-            diff = get_current_date() - self.date
+            diff = get_current_date() - start_date
         days = diff.days
         return days if days > 0 else 0
+
+    @property
+    def age(self):
+        return self._age(self.date)
+
+    def get_sla_start_date(self):
+        if self.sla_start_date:
+            return self.sla_start_date
+        else:
+            return self.date
+
+    @property
+    def sla_age(self):
+        return self._age(self.get_sla_start_date())
 
     def sla_days_remaining(self):
         sla_calculation = None
@@ -2420,16 +2465,46 @@ class BurpRawRequestResponse(models.Model):
 
 
 class Risk_Acceptance(models.Model):
+    TREATMENT_ACCEPT = 'A'
+    TREATMENT_AVOID = 'V'
+    TREATMENT_COMPENSATE = 'C'
+    TREATMENT_REDUCE = 'R'
+    TREATMENT_TRANSFER = 'T'
+
+    TREATMENT_CHOICES = [
+        (TREATMENT_ACCEPT, 'Accept'),
+        (TREATMENT_AVOID, 'Avoid'),
+        (TREATMENT_COMPENSATE, 'Compensate'),
+        (TREATMENT_REDUCE, 'Reduce'),
+        (TREATMENT_TRANSFER, 'Transfer'),
+    ]
+
     name = models.CharField(max_length=100, null=False, blank=False, help_text="Descriptive name which in the future may also be used to group risk acceptances together across engagements and products")
-    path = models.FileField(upload_to='risk/%Y/%m/%d',
-                            editable=False, null=False,
-                            blank=False, verbose_name="Risk Acceptance File")
+
     accepted_findings = models.ManyToManyField(Finding)
-    accepted_by = models.CharField(max_length=200, default=None, null=True, blank=True, verbose_name='Accepted By', help_text="The entity or person that accepts the risk.")
-    expiration_date = models.DateTimeField(default=None, null=True, blank=True)
-    owner = models.ForeignKey(Dojo_User, editable=True, on_delete=models.CASCADE, help_text="Only the owner and staff users can edit the risk acceptance.")
+
+    recommendation = models.CharField(choices=TREATMENT_CHOICES, max_length=2, null=False, default=TREATMENT_REDUCE, help_text="Recommendation from the security team.")
+
+    recommendation_details = models.TextField(null=True,
+                                      blank=True,
+                                      help_text="Explanation of recommendation")
+
+    decision = models.CharField(choices=TREATMENT_CHOICES, max_length=2, null=False, default=TREATMENT_ACCEPT, help_text="Risk treatment decision by risk owner")
+    decision_details = models.TextField(default=None, blank=True, null=True, help_text="If a compensating control exists to mitigate the finding or reduce risk, then list the compensating control(s).")
+
+    accepted_by = models.CharField(max_length=200, default=None, null=True, blank=True, verbose_name='Accepted By', help_text="The entity or person that accepts the risk, can be outside of defect dojo.")
+    path = models.FileField(upload_to='risk/%Y/%m/%d',
+                            editable=True, null=True,
+                            blank=True, verbose_name="Proof")
+    owner = models.ForeignKey(Dojo_User, editable=True, on_delete=models.CASCADE, help_text="User in defect dojo owning this acceptance. Only the owner and staff users can edit the risk acceptance.")
+
+    expiration_date = models.DateTimeField(default=None, null=True, blank=True, help_text="When the risk acceptance expires, the findings will be reactivated (unless disabled below).")
+    expiration_date_warned = models.DateTimeField(default=None, null=True, blank=True, help_text="When the risk acceptance expiration was warned for by the daily job.")
+    expiration_date_handled = models.DateTimeField(default=None, null=True, blank=True, help_text="When the risk acceptance expiration was handled (manually or by the daily job.")
+    reactivate_expired = models.BooleanField(null=False, blank=False, default=True, verbose_name="Reactivate findings on expiration", help_text="Reactivate findings when risk acceptance expires?")
+    restart_sla_expired = models.BooleanField(default=False, null=False, verbose_name="Restart SLA on expiration", help_text="When enabled, the SLA for findings is restarted when the risk acceptance expires.")
+
     notes = models.ManyToManyField(Notes, editable=False)
-    compensating_control = models.TextField(default=None, blank=True, null=True, help_text="If a compensating control exists to mitigate the finding or reduce risk, then list the compensating control(s).")
     created = models.DateTimeField(null=False, editable=False, auto_now_add=True)
     updated = models.DateTimeField(editable=False, auto_now=True)
 
@@ -2440,15 +2515,34 @@ class Risk_Acceptance(models.Model):
         return str(self.name)
 
     def filename(self):
-        return os.path.basename(self.path.name) \
-            if self.path is not None else ''
+        # logger.debug('path: "%s"', self.path)
+        if not self.path:
+            return None
+        return os.path.basename(self.path.name)
+
+    @property
+    def name_and_expiration_info(self):
+        return str(self.name) + (' (expired ' if self.is_expired else ' (expires ') + (timezone.localtime(self.expiration_date).strftime("%b %d, %Y") if self.expiration_date else 'Never') + ')'
 
     def get_breadcrumbs(self):
         bc = self.engagement_set.first().get_breadcrumbs()
         bc += [{'title': self.__unicode__(),
-                'url': reverse('view_risk', args=(
+                'url': reverse('view_risk_acceptance', args=(
                     self.engagement_set.first().product.id, self.id,))}]
         return bc
+
+    @property
+    def is_expired(self):
+        return self.expiration_date_handled is not None
+
+    # relationship is many to many, but we use it as one-to-many
+    @property
+    def engagement(self):
+        engs = self.engagement_set.all()
+        if engs:
+            return engs[0]
+
+        return None
 
 
 class Report(models.Model):
@@ -2684,6 +2778,7 @@ class JIRA_Project(models.Model):
                                                          blank=True)
     push_notes = models.BooleanField(default=False, blank=True)
     product_jira_sla_notification = models.BooleanField(default=True, blank=False, verbose_name="Send SLA notifications as comment?")
+    risk_acceptance_expiration_notification = models.BooleanField(default=False, blank=False, verbose_name="Send Risk Acceptance expiration notifications as comment?")
 
     @property
     def conf(self):
@@ -2784,7 +2879,10 @@ class Notifications(models.Model):
     product = models.ForeignKey(Product, default=None, null=True, editable=False, on_delete=models.CASCADE)
     sla_breach = MultiSelectField(choices=NOTIFICATION_CHOICES, default='alert', blank=True,
         verbose_name="SLA breach",
-        help_text="Get notified of upcoming SLA breaches")
+        help_text="Get notified of (upcoming) SLA breaches")
+    risk_acceptance_expiration = MultiSelectField(choices=NOTIFICATION_CHOICES, default='alert', blank=True,
+        verbose_name="Risk Acceptance Expiration",
+        help_text="Get notified of (upcoming) Risk Acceptance expiries")
 
     class Meta:
         constraints = [
@@ -2830,6 +2928,7 @@ class Notifications(models.Model):
                 result.review_requested = merge_sets_safe(result.review_requested, notifications.review_requested)
                 result.other = merge_sets_safe(result.other, notifications.other)
                 result.sla_breach = merge_sets_safe(result.sla_breach, notifications.sla_breach)
+                result.risk_acceptance_expiration = merge_sets_safe(result.risk_acceptance_expiration, notifications.risk_acceptance_expiration)
 
         return result
 
