@@ -12,7 +12,6 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.shortcuts import render, get_object_or_404
-from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.db.models import Sum, Count, Q, Max
 from django.contrib.admin.utils import NestedObjects
@@ -22,13 +21,12 @@ from dojo.filters import ProductFilter, EngagementFilter, ProductMetricsEndpoint
 from dojo.forms import ProductForm, EngForm, DeleteProductForm, DojoMetaDataForm, JIRAProjectForm, JIRAFindingForm, AdHocFindingForm, \
                        EngagementPresetsForm, DeleteEngagementPresetsForm, Sonarqube_ProductForm, ProductNotificationsForm, \
                        GITHUB_Product_Form, GITHUBFindingForm, App_AnalysisTypeForm, JIRAEngagementForm
-from dojo.models import Product_Type, Note_Type, Finding, Product, Engagement, ScanSettings, Risk_Acceptance, Test, GITHUB_PKey, Finding_Template, \
+from dojo.models import Product_Type, Note_Type, Finding, Product, Engagement, ScanSettings, Test, GITHUB_PKey, Finding_Template, \
                         Test_Type, System_Settings, Languages, App_Analysis, Benchmark_Type, Benchmark_Product_Summary, Endpoint_Status, \
                         Endpoint, Engagement_Presets, DojoMeta, Sonarqube_Product, Notifications, BurpRawRequestResponse
 
 from dojo.utils import get_page_items, add_breadcrumb, get_system_setting, Product_Tab, get_punchcard_data, queryset_check
 from dojo.notifications.helper import create_notification
-from custom_field.models import CustomFieldValue, CustomField
 from django.db.models import Prefetch, F
 from django.db.models.query import QuerySet
 from github import Github
@@ -213,19 +211,23 @@ def finding_querys(request, prod):
     filters = dict()
 
     findings_query = Finding.objects.filter(test__engagement__product=prod,
-                                      severity__in=('Critical', 'High', 'Medium', 'Low', 'Info')).prefetch_related(
-        'test__engagement',
-        'test__engagement__risk_acceptance',
-        'found_by',
-        'test',
-        'test__test_type',
-        'risk_acceptance_set',
+                                      severity__in=('Critical', 'High', 'Medium', 'Low', 'Info'))
+
+    # prefetch only what's needed to avoid lots of repeated queries
+    findings_query = findings_query.prefetch_related(
+        # 'test__engagement',
+        # 'test__engagement__risk_acceptance',
+        # 'found_by',
+        # 'test',
+        # 'test__test_type',
+        # 'risk_acceptance_set',
         'reporter')
 
     findings = ProductMetricsFindingFilter(request.GET, queryset=findings_query, pid=prod)
     findings_qs = queryset_check(findings)
     filters['form'] = findings.form
 
+    # dead code:
     # if not findings_qs and not findings_query:
     #     # logger.debug('all filtered')
     #     findings = findings_query
@@ -251,8 +253,11 @@ def finding_querys(request, prod):
         end_date = timezone.now()
     week = end_date - timedelta(days=7)  # seven days and /newnewer are considered "new"
 
-    risk_acceptances = Risk_Acceptance.objects.filter(engagement__in=Engagement.objects.filter(product=prod))
-    filters['accepted'] = [finding for ra in risk_acceptances for finding in ra.accepted_findings.all()]
+    # risk_acceptances = Risk_Acceptance.objects.filter(engagement__in=Engagement.objects.filter(product=prod)).prefetch_related('accepted_findings')
+    # filters['accepted'] = [finding for ra in risk_acceptances for finding in ra.accepted_findings.all()]
+
+    from dojo.finding.views import ACCEPTED_FINDINGS_QUERY
+    filters['accepted'] = Finding.objects.filter(test__engagement__product=prod).filter(ACCEPTED_FINDINGS_QUERY).distinct()
 
     filters['verified'] = findings_qs.filter(date__range=[start_date, end_date],
                                                false_p=False,
@@ -417,14 +422,6 @@ def view_product_metrics(request, pid):
     i_engs_page = get_page_items(request, result.qs, 10)
 
     scan_sets = ScanSettings.objects.filter(product=prod)
-    ct = ContentType.objects.get_for_model(prod)
-    product_cf = CustomField.objects.filter(content_type=ct)
-    product_metadata = {}
-
-    for cf in product_cf:
-        cfv = CustomFieldValue.objects.filter(field=cf, object_id=prod.id)
-        if len(cfv):
-            product_metadata[cf.name] = cfv[0].value
 
     filters = dict()
     if view == 'Finding':
@@ -437,6 +434,7 @@ def view_product_metrics(request, pid):
     week_date = filters['week']
 
     tests = Test.objects.filter(engagement__product=prod).prefetch_related('finding_set', 'test_type')
+    tests = tests.annotate(verified_finding_count=Count('finding__id', filter=Q(finding__verified=True)))
 
     open_vulnerabilities = filters['open_vulns']
     all_vulnerabilities = filters['all_vulns']
@@ -533,16 +531,15 @@ def view_product_metrics(request, pid):
     test_data = {}
     for t in tests:
         if t.test_type.name in test_data:
-            test_data[t.test_type.name] += t.verified_finding_count()
+            test_data[t.test_type.name] += t.verified_finding_count
         else:
-            test_data[t.test_type.name] = t.verified_finding_count()
+            test_data[t.test_type.name] = t.verified_finding_count
     product_tab = Product_Tab(pid, title="Product", tab="metrics")
 
     return render(request,
                   'dojo/product_metrics.html',
                   {'prod': prod,
                    'product_tab': product_tab,
-                   'product_metadata': product_metadata,
                    'engs': engs,
                    'i_engs': i_engs_page,
                    'scan_sets': scan_sets,
@@ -629,6 +626,8 @@ def prefetch_for_view_engagements(engs):
         prefetched_engs = prefetched_engs.annotate(count_findings_open=Count('test__finding__id', filter=Q(test__finding__active=True)))
         prefetched_engs = prefetched_engs.annotate(count_findings_close=Count('test__finding__id', filter=Q(test__finding__is_Mitigated=True)))
         prefetched_engs = prefetched_engs.annotate(count_findings_duplicate=Count('test__finding__id', filter=Q(test__finding__duplicate=True)))
+        ACCEPTED_FINDINGS_QUERY = Q(test__finding__risk_acceptance__isnull=False) & Q(test__finding__risk_acceptance__expiration_date_handled__isnull=True)
+        prefetched_engs = prefetched_engs.annotate(count_findings_accepted=Count('test__finding__id', filter=ACCEPTED_FINDINGS_QUERY))
         prefetched_engs = prefetched_engs.prefetch_related('tags')
     else:
         logger.debug('unable to prefetch because query was already executed')
