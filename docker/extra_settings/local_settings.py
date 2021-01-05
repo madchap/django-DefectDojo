@@ -11,9 +11,13 @@ CELERY_BEAT_SCHEDULE['auto-delete-engagements'] = {
 }
 
 # Override deduplication for certain parsers
-HASHCODE_FIELDS_PER_SCANNER['Anchore Engine Scan'] = ['title', 'severity', 'component_name', 'component_version']
+HASHCODE_FIELDS_PER_SCANNER['Anchore Engine Scan'] = ['title', 'severity', 'component_name', 'component_version', 'file_path']
 HASHCODE_ALLOWS_NULL_CWE['Anchore Engine Scan'] = True
 DEDUPLICATION_ALGORITHM_PER_PARSER['Anchore Engine Scan'] = DEDUPE_ALGO_HASH_CODE
+
+HASHCODE_FIELDS_PER_SCANNER['Anchore Enterprise Policy Check'] = ['title', 'severity']
+HASHCODE_ALLOWS_NULL_CWE['Anchore Enterprise Policy Check'] = True
+DEDUPLICATION_ALGORITHM_PER_PARSER['Anchore Enterprise Policy Check'] = DEDUPE_ALGO_HASH_CODE
 
 HASHCODE_FIELDS_PER_SCANNER['Twistlock Image Scan'] = ['title', 'severity', 'component_name', 'component_version']
 HASHCODE_ALLOWS_NULL_CWE['Twistlock Image Scan'] = True
