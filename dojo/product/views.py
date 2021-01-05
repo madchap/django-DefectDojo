@@ -12,7 +12,6 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.shortcuts import render, get_object_or_404
-from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.db.models import Sum, Count, Q, Max
 from django.contrib.admin.utils import NestedObjects
@@ -28,12 +27,12 @@ from dojo.models import Product_Type, Note_Type, Finding, Product, Engagement, S
 
 from dojo.utils import get_page_items, add_breadcrumb, get_system_setting, Product_Tab, get_punchcard_data, queryset_check
 from dojo.notifications.helper import create_notification
-from custom_field.models import CustomFieldValue, CustomField
 from django.db.models import Prefetch, F
 from django.db.models.query import QuerySet
 from github import Github
 from dojo.user.helper import user_must_be_authorized, user_is_authorized, check_auth_users_list
 import dojo.jira_link.helper as jira_helper
+import dojo.finding.helper as finding_helper
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +201,7 @@ def identify_view(request):
         elif get_data.get('false_positive', None):
             return 'Endpoint'
     referer = request.META.get('HTTP_REFERER', None)
-    if not referer:
+    if referer:
         if referer.find('type=Endpoint') > -1:
             return 'Endpoint'
     return 'Finding'
@@ -215,30 +214,27 @@ def finding_querys(request, prod):
                                       severity__in=('Critical', 'High', 'Medium', 'Low', 'Info')).prefetch_related(
         'test__engagement',
         'test__engagement__risk_acceptance',
+        'found_by',
+        'test',
         'test__test_type',
         'risk_acceptance_set',
-        'reporter').extra(
-        select={
-            'ra_count': 'SELECT COUNT(*) FROM dojo_risk_acceptance INNER JOIN '
-                        'dojo_risk_acceptance_accepted_findings ON '
-                        '( dojo_risk_acceptance.id = dojo_risk_acceptance_accepted_findings.risk_acceptance_id ) '
-                        'WHERE dojo_risk_acceptance_accepted_findings.finding_id = dojo_finding.id',
-        },
-    )
+        'reporter')
 
     findings = ProductMetricsFindingFilter(request.GET, queryset=findings_query, pid=prod)
     findings_qs = queryset_check(findings)
     filters['form'] = findings.form
 
-    if not findings_qs and not findings_query:
-        findings = findings_query
-        findings_qs = queryset_check(findings)
-        messages.add_message(request,
-                                     messages.ERROR,
-                                     'All objects have been filtered away. Displaying all objects',
-                                     extra_tags='alert-danger')
+    # if not findings_qs and not findings_query:
+    #     # logger.debug('all filtered')
+    #     findings = findings_query
+    #     findings_qs = queryset_check(findings)
+    #     messages.add_message(request,
+    #                                  messages.ERROR,
+    #                                  'All objects have been filtered away. Displaying all objects',
+    #                                  extra_tags='alert-danger')
 
     try:
+        # logger.debug(findings_qs.query)
         start_date = findings_qs.earliest('date').date
         start_date = datetime(start_date.year,
                             start_date.month, start_date.day,
@@ -247,7 +243,8 @@ def finding_querys(request, prod):
         end_date = datetime(end_date.year,
                             end_date.month, end_date.day,
                             tzinfo=timezone.get_current_timezone())
-    except:
+    except Exception as e:
+        logger.debug(e)
         start_date = timezone.now()
         end_date = timezone.now()
     week = end_date - timedelta(days=7)  # seven days and /newnewer are considered "new"
@@ -418,14 +415,6 @@ def view_product_metrics(request, pid):
     i_engs_page = get_page_items(request, result.qs, 10)
 
     scan_sets = ScanSettings.objects.filter(product=prod)
-    ct = ContentType.objects.get_for_model(prod)
-    product_cf = CustomField.objects.filter(content_type=ct)
-    product_metadata = {}
-
-    for cf in product_cf:
-        cfv = CustomFieldValue.objects.filter(field=cf, object_id=prod.id)
-        if len(cfv):
-            product_metadata[cf.name] = cfv[0].value
 
     filters = dict()
     if view == 'Finding':
@@ -437,7 +426,7 @@ def view_product_metrics(request, pid):
     end_date = filters['end_date']
     week_date = filters['week']
 
-    tests = Test.objects.filter(engagement__product=prod).prefetch_related('finding_set')
+    tests = Test.objects.filter(engagement__product=prod).prefetch_related('finding_set', 'test_type')
 
     open_vulnerabilities = filters['open_vulns']
     all_vulnerabilities = filters['all_vulns']
@@ -538,11 +527,11 @@ def view_product_metrics(request, pid):
         else:
             test_data[t.test_type.name] = t.verified_finding_count()
     product_tab = Product_Tab(pid, title="Product", tab="metrics")
+
     return render(request,
                   'dojo/product_metrics.html',
                   {'prod': prod,
                    'product_tab': product_tab,
-                   'product_metadata': product_metadata,
                    'engs': engs,
                    'i_engs': i_engs_page,
                    'scan_sets': scan_sets,
@@ -1098,10 +1087,7 @@ def ad_hoc_finding(request, pid):
             new_finding.reporter = request.user
             new_finding.numerical_severity = Finding.get_numerical_severity(
                 new_finding.severity)
-            if new_finding.false_p or new_finding.active is False:
-                new_finding.mitigated = timezone.now()
-                new_finding.mitigated_by = request.user
-                new_finding.is_Mitigated = True
+            finding_helper.update_finding_status(new_finding, request.user)
             create_template = new_finding.is_template
             # always false now since this will be deprecated soon in favor of new Finding_Template model
             new_finding.is_template = False
