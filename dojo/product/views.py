@@ -266,6 +266,7 @@ def finding_querys(request, prod):
     findings_qs = queryset_check(findings)
     filters['form'] = findings.form
 
+    # dead code:
     # if not findings_qs and not findings_query:
     #     # logger.debug('all filtered')
     #     findings = findings_query
@@ -291,8 +292,11 @@ def finding_querys(request, prod):
         end_date = timezone.now()
     week = end_date - timedelta(days=7)  # seven days and /newnewer are considered "new"
 
-    risk_acceptances = Risk_Acceptance.objects.filter(engagement__in=Engagement.objects.filter(product=prod))
-    filters['accepted'] = [finding for ra in risk_acceptances for finding in ra.accepted_findings.all()]
+    # risk_acceptances = Risk_Acceptance.objects.filter(engagement__in=Engagement.objects.filter(product=prod)).prefetch_related('accepted_findings')
+    # filters['accepted'] = [finding for ra in risk_acceptances for finding in ra.accepted_findings.all()]
+
+    from dojo.finding.views import ACCEPTED_FINDINGS_QUERY
+    filters['accepted'] = Finding.objects.filter(test__engagement__product=prod).filter(ACCEPTED_FINDINGS_QUERY).distinct()
 
     filters['verified'] = findings_qs.filter(date__range=[start_date, end_date],
                                              false_p=False,
@@ -469,6 +473,7 @@ def view_product_metrics(request, pid):
     week_date = filters['week']
 
     tests = Test.objects.filter(engagement__product=prod).prefetch_related('finding_set', 'test_type')
+    tests = tests.annotate(verified_finding_count=Count('finding__id', filter=Q(finding__verified=True)))
 
     open_vulnerabilities = filters['open_vulns']
     all_vulnerabilities = filters['all_vulns']
@@ -565,9 +570,9 @@ def view_product_metrics(request, pid):
     test_data = {}
     for t in tests:
         if t.test_type.name in test_data:
-            test_data[t.test_type.name] += t.verified_finding_count()
+            test_data[t.test_type.name] += t.verified_finding_count
         else:
-            test_data[t.test_type.name] = t.verified_finding_count()
+            test_data[t.test_type.name] = t.verified_finding_count
     product_tab = Product_Tab(pid, title="Product", tab="metrics")
 
     return render(request,

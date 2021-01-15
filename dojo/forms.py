@@ -34,6 +34,7 @@ from django.urls import reverse
 from tagulous.forms import TagField
 import logging
 from crum import get_current_user
+from dojo.utils import get_system_setting
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,8 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = ['name', 'description', 'tags', 'product_manager', 'technical_contact', 'team_manager', 'prod_type', 'regulations', 'app_analysis',
-                  'authorized_users', 'business_criticality', 'platform', 'lifecycle', 'origin', 'user_records', 'revenue', 'external_audience', 'internet_accessible']
+                  'authorized_users', 'business_criticality', 'platform', 'lifecycle', 'origin', 'user_records', 'revenue', 'external_audience',
+                  'internet_accessible', 'enable_simple_risk_acceptance', 'enable_full_risk_acceptance']
 
 
 class DeleteProductForm(forms.ModelForm):
@@ -563,37 +565,55 @@ class MergeFindings(forms.ModelForm):
         fields = ['append_description', 'add_endpoints', 'append_reference']
 
 
-class UploadRiskForm(forms.ModelForm):
-    # name = forms.CharField()
-    path = forms.FileField(label="Select File",
-                           required=False,
-                           widget=forms.widgets.FileInput(
-                               attrs={"accept": ".jpg,.png,.pdf"}))
+class EditRiskAcceptanceForm(forms.ModelForm):
+    # unfortunately django forces us to repeat many things here. choices, default, required etc.
+    recommendation = forms.ChoiceField(choices=Risk_Acceptance.TREATMENT_CHOICES, initial=Risk_Acceptance.TREATMENT_ACCEPT, widget=forms.RadioSelect)
+    decision = forms.ChoiceField(choices=Risk_Acceptance.TREATMENT_CHOICES, initial=Risk_Acceptance.TREATMENT_ACCEPT, widget=forms.RadioSelect)
+
+    path = forms.FileField(label="Proof", required=False, widget=forms.widgets.FileInput(attrs={"accept": ".jpg,.png,.pdf"}))
+    expiration_date = forms.DateTimeField(required=False, widget=forms.TextInput(attrs={'class': 'datepicker'}))
+
+    class Meta:
+        model = Risk_Acceptance
+        exclude = ['accepted_findings', 'notes']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['path'].help_text = 'Existing proof uploaded: %s' % self.instance.filename() if self.instance.filename() else 'None'
+
+
+class RiskAcceptanceForm(EditRiskAcceptanceForm):
+    # path = forms.FileField(label="Proof", required=False, widget=forms.widgets.FileInput(attrs={"accept": ".jpg,.png,.pdf"}))
+    # expiration_date = forms.DateTimeField(required=False, widget=forms.TextInput(attrs={'class': 'datepicker'}))
     accepted_findings = forms.ModelMultipleChoiceField(
         queryset=Finding.objects.all(), required=True,
         widget=forms.widgets.SelectMultiple(attrs={'size': 10}),
         help_text=('Active, verified findings listed, please select to add findings.'))
-    accepted_by = forms.CharField(help_text="The entity or person that accepts the risk.", required=False)
-    expiration_date = forms.DateTimeField(label='Date Risk Exception Expires', required=False, widget=forms.TextInput(attrs={'class': 'datepicker'}))
-    compensating_control = forms.CharField(label='Compensating Control', help_text="Compensating control (if applicable) for this risk acceptance", required=False, max_length=2400, widget=forms.Textarea)
     notes = forms.CharField(required=False, max_length=2400,
                             widget=forms.Textarea,
                             label='Notes')
 
     class Meta:
         model = Risk_Acceptance
-        fields = ['name', 'accepted_findings', 'owner']
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        expiration_delta_days = get_system_setting('risk_acceptance_form_default_days')
+        logger.debug('expiration_delta_days: %i', expiration_delta_days)
+        if expiration_delta_days > 0:
+            expiration_date = timezone.now().date() + relativedelta(days=expiration_delta_days)
+            # logger.debug('setting default expiration_date: %s', expiration_date)
+            self.fields['expiration_date'].initial = expiration_date
+        # self.fields['path'].help_text = 'Existing proof uploaded: %s' % self.instance.filename() if self.instance.filename() else 'None'
 
 
-class ReplaceRiskAcceptanceForm(forms.ModelForm):
-    path = forms.FileField(label="Select File",
-                           required=True,
-                           widget=forms.widgets.FileInput(
-                               attrs={"accept": ".jpg,.png,.pdf"}))
+class ReplaceRiskAcceptanceProofForm(forms.ModelForm):
+    path = forms.FileField(label="Proof", required=True, widget=forms.widgets.FileInput(attrs={"accept": ".jpg,.png,.pdf"}))
 
     class Meta:
         model = Risk_Acceptance
-        exclude = ('name', 'owner', 'accepted_findings', 'notes')
+        fields = ['path']
 
 
 class AddFindingsRiskAcceptanceForm(forms.ModelForm):
@@ -604,7 +624,8 @@ class AddFindingsRiskAcceptanceForm(forms.ModelForm):
 
     class Meta:
         model = Risk_Acceptance
-        exclude = ('name', 'owner', 'path', 'notes', 'accepted_by', 'expiration_date', 'compensating_control')
+        fields = ['accepted_findings']
+        # exclude = ('name', 'owner', 'path', 'notes', 'accepted_by', 'expiration_date', 'compensating_control')
 
 
 class ScanSettingsForm(forms.ModelForm):
@@ -840,6 +861,8 @@ class AddFindingForm(forms.ModelForm):
     title = forms.CharField(max_length=1000)
     date = forms.DateField(required=True,
                            widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
+    sla_start_date = forms.DateField(required=False,
+                           widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
     cwe = forms.IntegerField(required=False)
     cve = forms.CharField(max_length=28, required=False)
     cvssv3 = forms.CharField(max_length=117, required=False, widget=forms.TextInput(attrs={'class': 'cvsscalculator', 'data-toggle': 'dropdown', 'aria-haspopup': 'true', 'aria-expanded': 'false'}))
@@ -861,7 +884,8 @@ class AddFindingForm(forms.ModelForm):
 
     # the onyl reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'date', 'cwe', 'cve', 'severity', 'description', 'mitigation', 'impact', 'request', 'response', 'steps_to_reproduce',
-                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope', 'simple_risk_accept', 'under_defect_review')
+                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope',
+                   'simple_risk_accept', 'under_defect_review', 'sla_start_date')
 
     def __init__(self, *args, **kwargs):
         req_resp = kwargs.pop('req_resp')
@@ -892,6 +916,8 @@ class AdHocFindingForm(forms.ModelForm):
     title = forms.CharField(max_length=1000)
     date = forms.DateField(required=True,
                            widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
+    sla_start_date = forms.DateField(required=False,
+                           widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
     cwe = forms.IntegerField(required=False)
     cve = forms.CharField(max_length=28, required=False)
     cvssv3 = forms.CharField(max_length=117, required=False, widget=forms.TextInput(attrs={'class': 'cvsscalculator', 'data-toggle': 'dropdown', 'aria-haspopup': 'true', 'aria-expanded': 'false'}))
@@ -913,7 +939,8 @@ class AdHocFindingForm(forms.ModelForm):
 
     # the onyl reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'date', 'cwe', 'cve', 'severity', 'description', 'mitigation', 'impact', 'request', 'response', 'steps_to_reproduce',
-                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope', 'simple_risk_accept', 'under_defect_review')
+                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope',
+                   'simple_risk_accept', 'under_defect_review', 'sla_start_date')
 
     def __init__(self, *args, **kwargs):
         req_resp = kwargs.pop('req_resp')
@@ -969,6 +996,8 @@ class FindingForm(forms.ModelForm):
     title = forms.CharField(max_length=1000)
     date = forms.DateField(required=True,
                            widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
+    sla_start_date = forms.DateField(required=False,
+                           widget=forms.TextInput(attrs={'class': 'datepicker', 'autocomplete': 'off'}))
     cwe = forms.IntegerField(required=False)
     cve = forms.CharField(max_length=28, required=False, strip=False)
     cvssv3 = forms.CharField(max_length=117, required=False, widget=forms.TextInput(attrs={'class': 'cvsscalculator', 'data-toggle': 'dropdown', 'aria-haspopup': 'true', 'aria-expanded': 'false'}))
@@ -989,11 +1018,12 @@ class FindingForm(forms.ModelForm):
     is_template = forms.BooleanField(label="Create Template?", required=False,
                                      help_text="A new finding template will be created from this finding.")
 
-    simple_risk_accept = forms.BooleanField(label="Accept Risk (simple)", required=False, help_text="Check to accept this risk and deactivate the finding. Uncheck to unaccept the risk. Use full risk acceptance from the dropdown menu if you need afvanced settings such as an expiry date.")
+    simple_risk_accept = forms.BooleanField(label="Accept Risk", required=False, help_text="Check to accept this risk and deactivate the finding. Uncheck to unaccept the risk. Use full risk acceptance from the dropdown menu if you need advanced settings such as an expiry date.")
 
     # the onyl reliable way without hacking internal fields to get predicatble ordering is to make it explicit
     field_order = ('title', 'date', 'cwe', 'cve', 'severity', 'description', 'mitigation', 'impact', 'request', 'response', 'steps_to_reproduce',
-                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope', 'simple_risk_accept', 'under_defect_review')
+                   'severity_justification', 'endpoints', 'references', 'is_template', 'active', 'verified', 'false_p', 'duplicate', 'out_of_scope',
+                   'simple_risk_accept', 'under_defect_review', 'sla_start_date')
 
     def __init__(self, *args, **kwargs):
         template = kwargs.pop('template')
@@ -1004,7 +1034,13 @@ class FindingForm(forms.ModelForm):
 
         super(FindingForm, self).__init__(*args, **kwargs)
         print('instance: ', self.instance)
-        self.fields['simple_risk_accept'].initial = True if hasattr(self, 'instance') and self.instance.is_simple_risk_accepted else False
+        self.fields['simple_risk_accept'].initial = True if hasattr(self, 'instance') and self.instance.active_risk_acceptance else False
+
+        # do not show checkbox if finding is not accepted and simple risk acceptance is disabled
+        # if chcked, always show to allow unaccept also with full risk acceptance enabled
+        if not self.instance.active_risk_acceptance and not self.instance.test.engagement.product.enable_simple_risk_acceptance:
+            del self.fields['simple_risk_accept']
+
         # self.fields['tags'].widget.choices = t
         if req_resp:
             self.fields['request'].initial = req_resp[0]
@@ -1025,7 +1061,7 @@ class FindingForm(forms.ModelForm):
         if cleaned_data['false_p'] and cleaned_data['verified']:
             raise forms.ValidationError('False positive findings cannot '
                                         'be verified.')
-        if cleaned_data['active'] and cleaned_data['simple_risk_accept']:
+        if cleaned_data['active'] and 'simple_risk_accept' in cleaned_data and cleaned_data['simple_risk_accept']:
             raise forms.ValidationError('Active findings cannot '
                                         'be simple risk accepted.')
 
@@ -1969,10 +2005,11 @@ class ProductNotificationsForm(forms.ModelForm):
             self.initial['test_added'] = ''
             self.initial['scan_added'] = ''
             self.initial['sla_breach'] = ''
+            self.initial['risk_acceptance_expiration'] = ''
 
     class Meta:
         model = Notifications
-        fields = ['engagement_added', 'test_added', 'scan_added', 'sla_breach']
+        fields = ['engagement_added', 'test_added', 'scan_added', 'sla_breach', 'risk_acceptance_expiration']
 
 
 class AjaxChoiceField(forms.ChoiceField):

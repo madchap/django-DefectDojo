@@ -12,7 +12,7 @@ from django_filters import FilterSet, CharFilter, OrderingFilter, \
     BooleanFilter, NumberFilter, DateFilter
 from django_filters import rest_framework as filters
 from django_filters.filters import ChoiceFilter, _truncate, DateTimeFilter
-from pytz import timezone
+import pytz
 from django.db.models import Q
 from dojo.models import Dojo_User, Product_Type, Finding, Product, Test_Type, \
     Endpoint, Development_Environment, Finding_Template, Report, Note_Type, \
@@ -27,7 +27,7 @@ from crum import get_current_user
 
 logger = logging.getLogger(__name__)
 
-local_tz = timezone(get_system_setting('time_zone'))
+local_tz = pytz.timezone(get_system_setting('time_zone'))
 
 SEVERITY_CHOICES = (('Info', 'Info'), ('Low', 'Low'), ('Medium', 'Medium'),
                     ('High', 'High'), ('Critical', 'Critical'))
@@ -200,19 +200,28 @@ class ReportBooleanFilter(ChoiceFilter):
 
 
 class ReportRiskAcceptanceFilter(ChoiceFilter):
+
     def any(self, qs, name):
         return qs.all()
 
     def accepted(self, qs, name):
-        return qs.filter(risk_acceptance__isnull=False)
+        # return qs.filter(risk_acceptance__isnull=False)
+        from dojo.finding.views import ACCEPTED_FINDINGS_QUERY
+        return qs.filter(ACCEPTED_FINDINGS_QUERY)
 
     def not_accepted(self, qs, name):
-        return qs.filter(risk_acceptance__isnull=True)
+        from dojo.finding.views import NOT_ACCEPTED_FINDINGS_QUERY
+        return qs.filter(NOT_ACCEPTED_FINDINGS_QUERY)
+
+    def was_accepted(self, qs, name):
+        from dojo.finding.views import WAS_ACCEPTED_FINDINGS_QUERY
+        return qs.filter(WAS_ACCEPTED_FINDINGS_QUERY)
 
     options = {
         '': (_('Either'), any),
         1: (_('Yes'), accepted),
         2: (_('No'), not_accepted),
+        3: (_('Was'), was_accepted),
     }
 
     def __init__(self, *args, **kwargs):
@@ -1372,6 +1381,9 @@ class MetricsFindingFilter(FilterSet):
                 'test'].queryset = Test.objects.filter(
                 Q(engagement__product__authorized_users__in=[get_current_user()]) |
                 Q(engagement__product__prod_type__authorized_users__in=[get_current_user()]))
+        # str() uses test_type
+        self.form.fields['test'].queryset = self.form.fields['test'].queryset.prefetch_related('test_type')
+
         # str() uses test_type
         self.form.fields['test'].queryset = self.form.fields['test'].queryset.prefetch_related('test_type')
 
