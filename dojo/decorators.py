@@ -152,16 +152,24 @@ def list_of_models_to_dict_with_tags(model_list):
 
 
 def convert_kwargs_if_async(**kwargs):
+    logger.debug(f' Kwargs before: {kwargs}')
     if we_want_async():
-        # not sync means using celery for notifications.
-        # sending full model instances to celery is bad practice.
-        # and any models with tags cannot be sent to celery due to serialization problems with celery
-        # we convert all model instances into dictionaries
-        for key, value in kwargs.items():
-            if isinstance(value, models.Model):
-                kwargs[key] = model_to_dict_with_tags(value)
-            elif isinstance(value, list):
-                kwargs[key] = list_of_models_to_dict_with_tags(value)
-            elif isinstance(value, QuerySet):
-                kwargs[key] = list_of_models_to_dict_with_tags(list(value))
+        try:
+            # not sync means using celery for notifications.
+            # sending full model instances to celery is bad practice.
+            # and any models with tags cannot be sent to celery due to serialization problems with celery
+            # we convert all model instances into dictionaries
+            for key, value in kwargs.items():
+                logger.debug('converting: %s', key)
+                if isinstance(value, models.Model):
+                    logger.debug('model_to_dict_with_tags')
+                    kwargs[key] = model_to_dict_with_tags(value)
+                elif isinstance(value, list):
+                    kwargs[key] = list_of_models_to_dict_with_tags(value)
+                elif isinstance(value, QuerySet):
+                    logger.debug('queryset')
+                    kwargs[key] = list_of_models_to_dict_with_tags(list(value))
+        except:
+            logger.exception(" Kwargs exception")
+    logger.debug(f' Kwargs after: {kwargs}')
     return kwargs

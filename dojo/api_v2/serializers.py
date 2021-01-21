@@ -1489,9 +1489,11 @@ class ReImportScanSerializer(TaggitSerializer, serializers.Serializer):
             if updated_count > 0:
                 # new_items = original_items
                 title = 'Updated ' + str(updated_count) + " findings for " + str(test.engagement.product) + ': ' + str(test.engagement.name) + ': ' + str(test)
+                logger.debug("reimport debug: start notifications")
                 create_notification(event='scan_added', title=title, findings_new=new_items, findings_mitigated=mitigated_findings, findings_reactivated=reactivated_items,
                                     finding_count=updated_count, test=test, engagement=test.engagement, product=test.engagement.product, findings_untouched=untouched,
                                     url=reverse('view_test', args=(test.id,)))
+                logger.debug("reimport debug: end notifications")
 
         except SyntaxError:
             raise Exception("Parser SyntaxError")
