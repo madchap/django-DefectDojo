@@ -1363,110 +1363,122 @@ class ReImportScanSerializer(TaggitSerializer, serializers.Serializer):
                         unchanged_items.append(finding)
                         unchanged_count += 1
                 else:
-                    # no existing finding found
-                    item.test = test
-                    item.reporter = self.context['request'].user
-                    item.last_reviewed = timezone.now()
-                    item.last_reviewed_by = self.context['request'].user
-                    item.verified = verified
-                    item.active = active
-                    # Save it. Don't dedupe before endpoints are added.
-                    item.save(dedupe_option=False)
-                    logger.debug('%i: creating new finding: %i:%s:%s:%s', i, item.id, item, item.component_name, item.component_version)
-                    deduplicationLogger.debug('reimport found multiple identical existing findings for %i, a non-exact match. these are ignored and a new finding has been created', item.id)
-                    finding_added_count += 1
-                    new_items.append(item)
-                    finding = item
+                    try:
+                        # no existing finding found
+                        item.test = test
+                        item.reporter = self.context['request'].user
+                        item.last_reviewed = timezone.now()
+                        item.last_reviewed_by = self.context['request'].user
+                        item.verified = verified
+                        item.active = active
+                        # Save it. Don't dedupe before endpoints are added.
+                        item.save(dedupe_option=False)
+                        logger.debug('%i: creating new finding: %i:%s:%s:%s', i, item.id, item, item.component_name, item.component_version)
+                        deduplicationLogger.debug('reimport found multiple identical existing findings for %i, a non-exact match. these are ignored and a new finding has been created', item.id)
+                        finding_added_count += 1
+                        new_items.append(item)
+                        finding = item
 
-                    if hasattr(item, 'unsaved_req_resp'):
-                        for req_resp in item.unsaved_req_resp:
+                        if hasattr(item, 'unsaved_req_resp'):
+                            for req_resp in item.unsaved_req_resp:
+                                burp_rr = BurpRawRequestResponse(
+                                    finding=finding,
+                                    burpRequestBase64=base64.b64encode(req_resp["req"].encode("utf-8")),
+                                    burpResponseBase64=base64.b64encode(req_resp["resp"].encode("utf-8")))
+                                burp_rr.clean()
+                                burp_rr.save()
+
+                        if item.unsaved_request and item.unsaved_response:
                             burp_rr = BurpRawRequestResponse(
                                 finding=finding,
-                                burpRequestBase64=base64.b64encode(req_resp["req"].encode("utf-8")),
-                                burpResponseBase64=base64.b64encode(req_resp["resp"].encode("utf-8")))
+                                burpRequestBase64=base64.b64encode(item.unsaved_request.encode()),
+                                burpResponseBase64=base64.b64encode(item.unsaved_response.encode()))
                             burp_rr.clean()
                             burp_rr.save()
-
-                    if item.unsaved_request and item.unsaved_response:
-                        burp_rr = BurpRawRequestResponse(
-                            finding=finding,
-                            burpRequestBase64=base64.b64encode(item.unsaved_request.encode()),
-                            burpResponseBase64=base64.b64encode(item.unsaved_response.encode()))
-                        burp_rr.clean()
-                        burp_rr.save()
+                    except:
+                        logger.exception("reimport debug: exception creating a new finding")
 
                 # for existing findings: make sure endpoints are present or created
-                if finding:
-                    finding_count += 1
-                    for endpoint in item.unsaved_endpoints:
-                        ep, created = Endpoint.objects.get_or_create(
-                            protocol=endpoint.protocol,
-                            host=endpoint.host,
-                            path=endpoint.path,
-                            query=endpoint.query,
-                            fragment=endpoint.fragment,
-                            product=test.engagement.product)
-                        eps, created = Endpoint_Status.objects.get_or_create(
-                            finding=finding,
-                            endpoint=ep)
-                        ep.endpoint_status.add(eps)
-                        finding.endpoints.add(ep)
-                        finding.endpoint_status.add(eps)
-                    if endpoint_to_add:
-                        eps, created = Endpoint_Status.objects.get_or_create(
-                            finding=finding,
-                            endpoint=endpoint_to_add)
-                        finding.endpoints.add(endpoint_to_add)
-                        endpoint_to_add.endpoint_status.add(eps)
-                        finding.endpoint_status.add(eps)
-                    if item.unsaved_tags:
-                        finding.tags = item.unsaved_tags
+                try:
+                    if finding:
+                        finding_count += 1
+                        for endpoint in item.unsaved_endpoints:
+                            ep, created = Endpoint.objects.get_or_create(
+                                protocol=endpoint.protocol,
+                                host=endpoint.host,
+                                path=endpoint.path,
+                                query=endpoint.query,
+                                fragment=endpoint.fragment,
+                                product=test.engagement.product)
+                            eps, created = Endpoint_Status.objects.get_or_create(
+                                finding=finding,
+                                endpoint=ep)
+                            ep.endpoint_status.add(eps)
+                            finding.endpoints.add(ep)
+                            finding.endpoint_status.add(eps)
+                        if endpoint_to_add:
+                            eps, created = Endpoint_Status.objects.get_or_create(
+                                finding=finding,
+                                endpoint=endpoint_to_add)
+                            finding.endpoints.add(endpoint_to_add)
+                            endpoint_to_add.endpoint_status.add(eps)
+                            finding.endpoint_status.add(eps)
+                        if item.unsaved_tags:
+                            finding.tags = item.unsaved_tags
 
-                    # existing findings may be from before we had component_name/version fields
-                    finding.component_name = finding.component_name if finding.component_name else component_name
-                    finding.component_version = finding.component_version if finding.component_version else component_version
+                        # existing findings may be from before we had component_name/version fields
+                        finding.component_name = finding.component_name if finding.component_name else component_name
+                        finding.component_version = finding.component_version if finding.component_version else component_version
 
-                    finding.save(push_to_jira=push_to_jira)
+                        finding.save(push_to_jira=push_to_jira)
+                except:
+                    logger.exception("reimport debug: exception saving endpoints.")
 
             to_mitigate = set(original_items) - set(reactivated_items) - set(unchanged_items)
             mitigated_findings = []
-            if close_old_findings:
-                for finding in to_mitigate:
-                    if not finding.mitigated or not finding.is_Mitigated:
-                        logger.debug('mitigating finding: %i:%s', finding.id, finding)
-                        finding.mitigated = scan_date_time
-                        finding.is_Mitigated = True
-                        finding.mitigated_by = self.context['request'].user
-                        finding.active = False
+            try:
+                if close_old_findings:
+                    for finding in to_mitigate:
+                        if not finding.mitigated or not finding.is_Mitigated:
+                            logger.debug('mitigating finding: %i:%s', finding.id, finding)
+                            finding.mitigated = scan_date_time
+                            finding.is_Mitigated = True
+                            finding.mitigated_by = self.context['request'].user
+                            finding.active = False
 
-                        endpoint_status = finding.endpoint_status.all()
-                        for status in endpoint_status:
-                            status.mitigated_by = self.context['request'].user
-                            status.mitigated_time = timezone.now()
-                            status.mitigated = True
-                            status.last_modified = timezone.now()
-                            status.save()
+                            endpoint_status = finding.endpoint_status.all()
+                            for status in endpoint_status:
+                                status.mitigated_by = self.context['request'].user
+                                status.mitigated_time = timezone.now()
+                                status.mitigated = True
+                                status.last_modified = timezone.now()
+                                status.save()
 
-                        # don't try to dedupe findings that we are closing
-                        finding.save(push_to_jira=push_to_jira, dedupe_option=False)
-                        note = Notes(entry="Mitigated by %s re-upload." % scan_type,
-                                    author=self.context['request'].user)
-                        note.save()
-                        finding.notes.add(note)
-                        mitigated_findings.append(finding)
-                        mitigated_count += 1
+                            # don't try to dedupe findings that we are closing
+                            finding.save(push_to_jira=push_to_jira, dedupe_option=False)
+                            note = Notes(entry="Mitigated by %s re-upload." % scan_type,
+                                        author=self.context['request'].user)
+                            note.save()
+                            finding.notes.add(note)
+                            mitigated_findings.append(finding)
+                            mitigated_count += 1
+            except:
+                logger.exception("reimport debug: exception closing findings.")
 
             untouched = set(unchanged_items) - set(to_mitigate)
 
-            test.updated = max_safe([scan_date_time, test.updated])
-            test.engagement.updated = max_safe([scan_date_time, test.engagement.updated])
+            try:
+                test.updated = max_safe([scan_date_time, test.updated])
+                test.engagement.updated = max_safe([scan_date_time, test.engagement.updated])
 
-            if test.engagement.engagement_type == 'CI/CD':
-                test.target_end = max_safe([scan_date_time, test.target_end])
-                test.engagement.target_end = max_safe([scan_date, test.engagement.target_end])
+                if test.engagement.engagement_type == 'CI/CD':
+                    test.target_end = max_safe([scan_date_time, test.target_end])
+                    test.engagement.target_end = max_safe([scan_date, test.engagement.target_end])
 
-            test.save()
-            test.engagement.save()
+                test.save()
+                test.engagement.save()
+            except:
+                logger.exception("reimport debug: exception in updating test or engagement.")
 
             # print(len(new_items))
             # print(reactivated_count)
