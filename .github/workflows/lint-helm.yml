@@ -29,6 +29,7 @@ jobs:
       - name: Run chart-testing (list-changed)
         id: list-changed
         run: |
+          export CT_CHART_DIRS=helm/defectdojo
           changed=$(ct list-changed)
           if [[ -n "$changed" ]]; then
             echo "::set-output name=changed::true"
