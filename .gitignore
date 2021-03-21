@@ -105,7 +105,6 @@ dojo/media
 venv/
 ENV/
 quick.bash
-*.tgz
 
 #visual studio code
 *.code-workspace
