@@ -40,7 +40,7 @@ jobs:
       - name: Run chart-testing (list-changed)
         id: list-changed
         run: |
-          echo "ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF})"
+          echo "ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF}"
           changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF})
           if [[ -n "$changed" ]]; then
             echo "::set-output name=changed::true"
