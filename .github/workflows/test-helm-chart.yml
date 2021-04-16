@@ -39,12 +39,14 @@ jobs:
 
       - name: Run chart-testing (list-changed)
         id: list-changed
-        env:
-          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && echo $GITHUB_BASE_REF || echo $GITHUB_REF }}
         run: |
-          if:
-          echo "ct list-changed --config ct.yaml --target-branch ${TARGET_BRANCH}"
-          changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF})
+          if [ ! -z ${GITHUB_BASE_REF} ]; then
+            echo "ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF}"
+            changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF})
+          else
+            echo "ct list-changed --config ct.yaml --target-branch ${GITHUB_REF}"
+            changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_REF})
+          fi
           if [[ -n "$changed" ]]; then
             echo "::set-output name=changed::true"
           fi
