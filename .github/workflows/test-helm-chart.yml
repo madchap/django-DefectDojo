@@ -45,7 +45,7 @@ jobs:
             changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_BASE_REF})
           else
             echo "ct list-changed --config ct.yaml --target-branch ${GITHUB_REF}"
-            changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_REF})
+            changed=$(ct list-changed --config ct.yaml --target-branch ${GITHUB_REF#refs/heads/})
           fi
           if [[ -n "$changed" ]]; then
             echo "::set-output name=changed::true"
