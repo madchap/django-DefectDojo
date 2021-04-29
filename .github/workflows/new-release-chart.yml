@@ -50,8 +50,6 @@ jobs:
           asset_name: defectdojo-${{ steps.package-helm-chart.outputs.chart_version }}.tgz
           asset_content_type: application/tar+gzip
       - name: Update Helm repository index
-        env:
-          GIT_SERVER: $GITHUB_SERVER_URL
         id: update-helm-repository-index
         run: |
           git config --global user.name "${{ env.GIT_USERNAME }}"
@@ -61,9 +59,9 @@ jobs:
           git checkout helm-charts
           git pull
           if [ ! -f ./index.yaml ]; then
-            helm repo index ./build --url "${{ env.GIT_SERVER }}/${{ github.repository }}/releases/download/${{ github.event.inputs.release_number }}/"
+            helm repo index ./build --url "${{ GITHUB_SERVER_URL }}/${{ github.repository }}/releases/download/${{ github.event.inputs.release_number }}/"
           else
-            helm repo index ./build --url "${{ env.GIT_SERVER }}/${{ github.repository }}/releases/download/${{ github.event.inputs.release_number }}/" --merge ./index.yaml
+            helm repo index ./build --url "${{ GITHUB_SERVER_URL }}/${{ github.repository }}/releases/download/${{ github.event.inputs.release_number }}/" --merge ./index.yaml
           fi
           cp -f ./build/index.yaml ./index.yaml
           git add ./index.yaml
