@@ -1,38 +1,3 @@
-Skip to content
-Search or jump to…
-
-Pull requests
-Issues
-Marketplace
-Explore
- 
-@madchap 
-DefectDojo
-/
-django-DefectDojo
-200
-1.7k
-774
-Code
-Issues
-160
-Pull requests
-37
-Actions
-Projects
-Wiki
-Security
-3
-Insights
-Settings
-django-DefectDojo/.github/workflows/new-release-chart.yml
-@madchap
-madchap Update new-release-chart.yml
-Latest commit a54c8c8 22 hours ago
- History
- 1 contributor
-70 lines (68 sloc)  2.81 KB
- 
 name: "[OOB] Release helm chart"
 
 env:
