@@ -51,7 +51,7 @@ jobs:
           asset_content_type: application/tar+gzip
       - name: Update Helm repository index
         env:
-          GIT_SERVER: "${{ env.GITHUB_SERVER_URL }}"
+          GIT_SERVER: $GITHUB_SERVER_URL
         id: update-helm-repository-index
         run: |
           git config --global user.name "${{ env.GIT_USERNAME }}"
