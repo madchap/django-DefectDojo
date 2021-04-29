@@ -3,9 +3,6 @@ name: "[OOB] Release helm chart"
 env:
   GIT_USERNAME: "DefectDojo release bot"
   GIT_EMAIL: "dojo-release-bot@users.noreply.github.com"
-  GIT_SERVER: ${{ env.GITHUB_SERVER_URL }}
-  
-  workflow_name: 'release 2 tag release docker push' # needed in cache key, which doesn't support comma's
 on:
   workflow_dispatch:
     inputs:
@@ -53,6 +50,8 @@ jobs:
           asset_name: defectdojo-${{ steps.package-helm-chart.outputs.chart_version }}.tgz
           asset_content_type: application/tar+gzip
       - name: Update Helm repository index
+        env:
+          GIT_SERVER: "${{ env.GITHUB_SERVER_URL }}"
         id: update-helm-repository-index
         run: |
           git config --global user.name "${{ env.GIT_USERNAME }}"
