@@ -1,3 +1,4 @@
+preferredBranch: dev
 exclude:
 - branch: do-nothing
 - branch: dont-touch-*
