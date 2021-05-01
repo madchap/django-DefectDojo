@@ -2,6 +2,7 @@
 # Global settings
 # create defectdojo specific secret
 createSecret: false
+createTest: false
 # create rabbitmq secret in defectdojo chart, outside of rabbitmq chart
 createRabbitMqSecret: false
 # create redis secret in defectdojo chart, outside of redis chart
