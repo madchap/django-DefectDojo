@@ -1,8 +1,8 @@
 # This docker-compose.yml file  is fully functional to evaluate DefectDojo
-# in your local environment. 
+# in your local environment.
 #
 # Although Docker Compose is one of the supported installation methods to
-# deploy a containerized DefectDojo in a production environment, the 
+# deploy a containerized DefectDojo in a production environment, the
 # docker-compose.yml file is not intended for production use without first
 # customizing it to your particular situation.
 ---
@@ -45,6 +45,8 @@ services:
       DD_CELERY_BROKER_PASSWORD: ${DD_CELERY_BROKER_USER:-guest}
       DD_SECRET_KEY: ${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}
       DD_CREDENTIAL_AES_256_KEY: ${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}
+      DD_ENABLE_TELEMETRY: ${DD_ENABLE_TELEMETRY:-True}
+      OPENTELEMETRY_PYTHON_DJANGO_EXCLUDED_URLS: ".*alerts.*"
     volumes:
         - type: bind
           source: ./docker/extra_settings

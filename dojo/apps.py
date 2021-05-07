@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 from watson import search as watson
 from django.db import models
-
+from opentelemetry.instrumentation.django import DjangoInstrumentor
 
 import logging
 logger = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ class DojoAppConfig(AppConfig):
 
         # YourModel = self.get_model("YourModel")
         # watson.register(YourModel)
+        DjangoInstrumentor().instrument()
 
 
 def get_model_fields_with_extra(model, extra_fields=()):

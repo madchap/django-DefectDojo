@@ -181,7 +181,8 @@ env = environ.Env(
     # Initial behaviour in Defect Dojo was to delete all duplicates when an original was deleted
     # New behaviour is to leave the duplicates in place, but set the oldest of duplicates as new original
     # Set to True to revert to the old behaviour where all duplicates are deleted
-    DD_DUPLICATE_CLUSTER_CASCADE_DELETE=(str, False)
+    DD_DUPLICATE_CLUSTER_CASCADE_DELETE=(str, False),
+    DD_ENABLE_TELEMETRY=(str, False)
 )
 
 

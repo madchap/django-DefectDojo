@@ -16,6 +16,9 @@ framework.
 import os
 import socket
 from socket import error as socket_error
+import logging
+
+logger = logging.getLogger(__name__)
 
 # We defer to a DJANGO_SETTINGS_MODULE already in the environment. This breaks
 # if running multiple sites in the same mod_wsgi process. To fix this, use
@@ -27,6 +30,36 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dojo.settings.settings")
 # file. This includes Django's development server, if the WSGI_APPLICATION
 # setting points here.
 from django.core.wsgi import get_wsgi_application
+
+# opentelemetry
+from uwsgidecorators import postfork
+from opentelemetry import trace
+# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import (
+    ConsoleSpanExporter,
+    SimpleSpanProcessor
+)
+
+
+@postfork
+def init_tracing():
+    if os.environ.get('DD_ENABLE_TELEMETRY') in ('true', 'True'):
+        logger.info("Anonymous telemetry is enabled. See <LINK> for more information.")
+        resource = Resource.create(attributes={
+            "defectdojo": "uwsgi"
+        })
+
+        trace.set_tracer_provider(TracerProvider(resource=resource))
+        #  span_processor = BatchSpanProcessor(
+        #    OTLPSpanExporter(endpoint="http://191.168.10.68:4317")
+        # )
+        span_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+        trace.get_tracer_provider().add_span_processor(span_processor)
+    else:
+        logger.info("Telemetry is disabled per DD_ENABLE_TELEMETRY variable.")
+
 
 application = get_wsgi_application()
 
