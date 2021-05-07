@@ -1,5 +1,7 @@
 from dojo.decorators import trace_parser
 import json
+from opentelemetry import trace
+# from opentelemetry.trace import set_span_in_context
 
 from dojo.models import Finding
 
