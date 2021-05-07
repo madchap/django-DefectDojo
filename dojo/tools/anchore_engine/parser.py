@@ -16,8 +16,11 @@ class AnchoreEngineParser(object):
         return "Anchore-CLI JSON vulnerability report format."
 
     def get_findings(self, filename, test):
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(self.get_scan_types()):
+        tracer = trace.get_tracer(self.get_scan_types())
+        with tracer.start_as_current_span(self.get_scan_types()) as span:
+            span.set_attribute("parser_name", self.get_scan_types())
+            span.set_attribute("report_size", filename.size)
+            span.add_event(f"Starting {self.get_scan_types()} import")
             data = json.load(filename)
             dupes = dict()
             for item in data['vulnerabilities']:
@@ -94,4 +97,6 @@ class AnchoreEngineParser(object):
 
                     dupes[dupe_key] = find
 
+            span.set_attribute("number_of_findings", len(dupes.values()))
+            span.add_event(f"Ending {self.get_scan_types()} import")
             return list(dupes.values())

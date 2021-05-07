@@ -17,6 +17,9 @@ import os
 import socket
 from socket import error as socket_error
 import logging
+import uuid
+from django.conf import settings
+from dojo import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -37,26 +40,45 @@ from opentelemetry import trace
 # from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.exporter.jaeger.thrift import JaegerExporter
 from opentelemetry.sdk.trace.export import (
     ConsoleSpanExporter,
-    SimpleSpanProcessor
+    SimpleSpanProcessor,
+    BatchSpanProcessor
 )
 
 
 @postfork
 def init_tracing():
     if os.environ.get('DD_ENABLE_TELEMETRY') in ('true', 'True'):
-        logger.info("Anonymous telemetry is enabled. See <LINK> for more information.")
+        logger.info("Anonymous telemetry is enabled per DD_ENABLE_TELEMETRY variable. See <LINK> for more information.")
+        # create a JaegerExporter
+        # can launch a quick one like
+        # docker run -d -p 5775:5775/udp -p 6831:6831/udp -p 16686:16686 jaegertracing/all-in-one:latest
+        jaeger_exporter = JaegerExporter(
+            # configure agent
+            agent_host_name='192.168.10.68',
+            agent_port=6831,
+            # optional: configure also collector
+            # collector_endpoint='http://localhost:14268/api/traces?format=jaeger.thrift',
+            # username=xxxx, # optional
+            # password=xxxx, # optional
+            # max_tag_value_length=None # optional
+        )
+        # TODO: Store in DB
+        instance_id = uuid.uuid5(uuid.NAMESPACE_DNS, settings.SITE_URL)
+        logger.info(f"Service instance ID is {instance_id}")
         resource = Resource.create(attributes={
-            "defectdojo": "uwsgi"
+            "service.name": "DefectDojo",
+            "service.instance.id": instance_id,
+            "service.version": __version__
         })
 
         trace.set_tracer_provider(TracerProvider(resource=resource))
-        #  span_processor = BatchSpanProcessor(
-        #    OTLPSpanExporter(endpoint="http://191.168.10.68:4317")
-        # )
-        span_processor = SimpleSpanProcessor(ConsoleSpanExporter())
-        trace.get_tracer_provider().add_span_processor(span_processor)
+        span_jaeger_processor = BatchSpanProcessor(jaeger_exporter)
+        span_console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+        trace.get_tracer_provider().add_span_processor(span_jaeger_processor)
+        trace.get_tracer_provider().add_span_processor(span_console_processor)
     else:
         logger.info("Telemetry is disabled per DD_ENABLE_TELEMETRY variable.")
 
