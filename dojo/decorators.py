@@ -4,6 +4,7 @@ from django.db import models
 from django.conf import settings
 from django.forms.models import model_to_dict
 from django.db.models.query import QuerySet
+from opentelemetry import trace
 import logging
 
 
@@ -195,5 +196,25 @@ def on_exception_log_kwarg(func):
             f.writelines(self.driver.page_source)
             # time.sleep(30)
             raise(e)
+
+    return wrapper
+
+
+def trace_parser(func):
+    # POC test with anchore parser
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        """Adds tracing to the parser"""
+        logger.info("In the TRACER decorator")
+        parser_type_name = args[0].get_scan_types()
+        logger.info(f"scan type is {parser_type_name}")
+        temp_filename = args[1]
+        logger.info(f"filename is {temp_filename}")
+        tracer = trace.get_tracer(parser_type_name)
+        with tracer.start_as_current_span(parser_type_name) as span:
+            span.set_attribute("parser_name", parser_type_name)
+            span.set_attribute("report_size", temp_filename.size)
+            span.add_event(f"Starting {parser_type_name} import")
+            return func(*args, **kwargs)
 
     return wrapper

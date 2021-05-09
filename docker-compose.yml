@@ -46,7 +46,7 @@ services:
       DD_SECRET_KEY: ${DD_SECRET_KEY:-hhZCp@D28z!n@NED*yB!ROMt+WzsY*iq}
       DD_CREDENTIAL_AES_256_KEY: ${DD_CREDENTIAL_AES_256_KEY:-&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw}
       DD_ENABLE_TELEMETRY: ${DD_ENABLE_TELEMETRY:-True}
-      OPENTELEMETRY_PYTHON_DJANGO_EXCLUDED_URLS: ".*alerts.*"
+      OTEL_PYTHON_DJANGO_EXCLUDED_URLS: "alerts"
     volumes:
         - type: bind
           source: ./docker/extra_settings
