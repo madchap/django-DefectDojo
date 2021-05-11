@@ -70,7 +70,7 @@ def init_tracing():
         logger.info(f"Service instance ID is {instance_id}")
         resource = Resource.create(attributes={
             "service.name": "DefectDojo",
-            # "service.instance.id": instance_id,  #  not showing in jaeger and breaks console
+            "service.instance.id": f"{instance_id}",
             "service.version": __version__
         })
 
