@@ -15,7 +15,6 @@ framework.
 """
 import os
 import socket
-from socket import error as socket_error
 import logging
 import uuid
 from django.conf import settings
@@ -84,7 +83,6 @@ def is_debugger_listening(port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     return s.connect_ex(('127.0.0.1', port))
 
-application = get_wsgi_application()
 
 debugpy_port = os.environ.get("DD_DEBUG_PORT") if os.environ.get("DD_DEBUG_PORT") else 3000
 
