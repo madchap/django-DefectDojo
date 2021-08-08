@@ -7,6 +7,7 @@ on:
       - dev
       - release/**
       - hotfix/**
+  workflow_dispatch:    
 
 jobs:
   lint:
@@ -43,7 +44,8 @@ jobs:
           if [ ! -z ${GITHUB_BASE_REF} ]; then
             echo ::set-output name=ct-branch::${GITHUB_BASE_REF}
           else
-            echo ::set-output name=ct-branch::${GITHUB_REF#refs/heads/}
+            # echo ::set-output name=ct-branch::${GITHUB_REF#refs/heads/}
+            echo ::set-output name=ct-branch::dev
           fi
 
       - name: Run chart-testing (list-changed)

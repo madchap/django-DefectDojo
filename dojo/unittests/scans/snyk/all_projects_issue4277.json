@@ -6226,7 +6226,7 @@
       }
     },
     "packageManager": "npm",
-    "projectId": "***REMOVED***",
+    "projectId": "a9d9476f-875b-497f-adab-b83af0336524",
     "ignoreSettings": null,
     "summary": "58 vulnerable dependency paths",
     "remediation": {
