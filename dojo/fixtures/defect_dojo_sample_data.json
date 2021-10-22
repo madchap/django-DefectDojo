@@ -13990,8 +13990,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14019,8 +14018,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14048,8 +14046,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14077,8 +14074,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14106,8 +14102,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14135,8 +14130,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14164,8 +14158,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14193,8 +14186,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14222,8 +14214,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14251,8 +14242,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14280,8 +14270,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14309,8 +14298,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14338,8 +14326,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14367,8 +14354,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14396,8 +14382,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14425,8 +14410,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14454,8 +14438,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
@@ -14483,8 +14466,7 @@
         "build_id": null,
         "commit_hash": null,
         "branch_tag": null,
-        "sonarqube_config": null,
-        "cobaltio_config": null,
+        "api_scan_configuration": null,
         "notes": [],
         "files": [],
         "tags": []
