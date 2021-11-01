@@ -12588,16 +12588,6 @@
 },
 {
     "model": "dojo.test_type",
-    "pk": 116,
-    "fields": {
-        "name": "Safety Scan",
-        "static_tool": false,
-        "dynamic_tool": false,
-        "active": true
-    }
-},
-{
-    "model": "dojo.test_type",
     "pk": 117,
     "fields": {
         "name": "SARIF",
