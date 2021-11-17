@@ -7099,7 +7099,7 @@
         "enable_msteams_notifications": false,
         "msteams_url": "",
         "enable_mail_notifications": false,
-        "mail_notifications_from": "from@example.com",
+        "email_from": "no-reply@example.com",
         "mail_notifications_to": "",
         "false_positive_history": false,
         "url_prefix": "",
