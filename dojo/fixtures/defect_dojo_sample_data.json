@@ -7147,8 +7147,7 @@
         "critical_product": false,
         "key_product": false,
         "updated": null,
-        "created": null,
-        "authorized_users": []
+        "created": null
     }
 },
 {
@@ -7160,8 +7159,7 @@
         "critical_product": true,
         "key_product": false,
         "updated": "2018-08-16T17:05:29.277Z",
-        "created": null,
-        "authorized_users": []
+        "created": null
     }
 },
 {
@@ -7173,8 +7171,7 @@
         "critical_product": false,
         "key_product": true,
         "updated": "2018-08-16T17:05:42.193Z",
-        "created": null,
-        "authorized_users": []
+        "created": null
     }
 },
 {
@@ -8652,10 +8649,6 @@
         "internet_accessible": true,
         "enable_simple_risk_acceptance": false,
         "enable_full_risk_acceptance": true,
-        "authorized_users": [
-            2,
-            3
-        ],
         "regulations": [
             13,
             1
@@ -8689,10 +8682,6 @@
         "internet_accessible": false,
         "enable_simple_risk_acceptance": false,
         "enable_full_risk_acceptance": true,
-        "authorized_users": [
-            2,
-            3
-        ],
         "regulations": [],
         "tags": []
     }
@@ -8721,9 +8710,6 @@
         "internet_accessible": false,
         "enable_simple_risk_acceptance": false,
         "enable_full_risk_acceptance": true,
-        "authorized_users": [
-            3
-        ],
         "regulations": [
             5
         ],
