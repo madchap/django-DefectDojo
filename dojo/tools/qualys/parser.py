@@ -2,8 +2,10 @@ import datetime
 import logging
 import html2text
 from defusedxml import ElementTree as etree
+from cvss import CVSS3
 
 from dojo.models import Endpoint, Finding
+from dojo.tools.qualys import csv_parser
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,19 @@ def htmltext(blob):
     h = html2text.HTML2Text()
     h.ignore_links = False
     return h.handle(blob)
+
+
+def split_cvss(value, _temp):
+    # Check if CVSS field contains the CVSS vector
+    if value is None or len(value) == 0 or value == "-":
+        return
+    if len(value) > 4:
+        split = value.split(" (")
+        _temp['CVSS_value'] = float(split[0])
+        # remove ")" at the end
+        _temp['CVSS_vector'] = CVSS3("CVSS:3.0/" + split[1][:-1]).clean_vector()
+    else:
+        _temp['CVSS_value'] = float(value)
 
 
 def parse_finding(host, tree):
@@ -99,7 +114,18 @@ def parse_finding(host, tree):
                 _temp['mitigation_date'] = datetime.datetime.strptime(last_fixed, "%Y-%m-%dT%H:%M:%SZ").date()
             else:
                 _temp['mitigation_date'] = None
-        search = "//GLOSSARY/VULN_DETAILS_LIST/VULN_DETAILS[@id='{}']".format(_gid)
+        # read cvss value if present
+        cvss3 = vuln_details.findtext('CVSS3_FINAL')
+        if cvss3 is not None and cvss3 != "-":
+            split_cvss(cvss3, _temp)
+        else:
+            cvss2 = vuln_details.findtext('CVSS_FINAL')
+            if cvss2 is not None and cvss2 != "-":
+                split_cvss(cvss2, _temp)
+                # DefectDojo does not support cvssv2
+                _temp['CVSS_vector'] = None
+
+        search = ".//GLOSSARY/VULN_DETAILS_LIST/VULN_DETAILS[@id='{}']".format(_gid)
         vuln_item = tree.find(search)
         if vuln_item is not None:
             finding = Finding()
@@ -125,8 +151,18 @@ def parse_finding(host, tree):
             # Impact description
             _temp['IMPACT'] = htmltext(vuln_item.findtext('IMPACT'))
 
-            # CVSS
-            _temp['CVSS_score'] = vuln_item.findtext('CVSS_SCORE/CVSS_BASE')
+            # read cvss value if present and not already read from vuln
+            if _temp.get('CVSS_value') is None:
+                cvss3 = vuln_item.findtext('CVSS3_SCORE/CVSS3_BASE')
+                cvss2 = vuln_item.findtext('CVSS_SCORE/CVSS_BASE')
+                if cvss3 is not None and cvss3 != "-":
+                    split_cvss(cvss3, _temp)
+                else:
+                    cvss2 = vuln_item.findtext('CVSS_FINAL')
+                    if cvss2 is not None and cvss2 != "-":
+                        split_cvss(cvss2, _temp)
+                        # DefectDojo does not support cvssv2
+                        _temp['CVSS_vector'] = None
 
             # CVE and LINKS
             _temp_cve_details = vuln_item.iterfind('CVE_ID_LIST/CVE_ID')
@@ -137,14 +173,14 @@ def parse_finding(host, tree):
         # The CVE in Qualys report might not have a CVSS score, so findings are informational by default
         # unless we can find map to a Severity OR a CVSS score from the findings detail.
         sev = None
-        if _temp['CVSS_score'] is not None and float(_temp['CVSS_score']) > 0:
-            if 0.1 <= float(_temp['CVSS_score']) <= 3.9:
+        if _temp.get('CVSS_value') is not None and _temp['CVSS_value'] > 0:
+            if 0.1 <= float(_temp['CVSS_value']) <= 3.9:
                 sev = 'Low'
-            elif 4.0 <= float(_temp['CVSS_score']) <= 6.9:
+            elif 4.0 <= float(_temp['CVSS_value']) <= 6.9:
                 sev = 'Medium'
-            elif 7.0 <= float(_temp['CVSS_score']) <= 8.9:
+            elif 7.0 <= float(_temp['CVSS_value']) <= 8.9:
                 sev = 'High'
-            elif float(_temp['CVSS_score']) >= 9.0:
+            elif float(_temp['CVSS_value']) >= 9.0:
                 sev = 'Critical'
         elif vuln_item.findtext('SEVERITY') is not None:
             if int(vuln_item.findtext('SEVERITY')) == 1:
@@ -183,8 +219,10 @@ def parse_finding(host, tree):
                               vuln_id_from_tool=_gid,
                               )
         finding.mitigated = _temp['mitigation_date']
-        finding.is_Mitigated = _temp['mitigated']
+        finding.is_mitigated = _temp['mitigated']
         finding.active = _temp['active']
+        if _temp.get('CVSS_vector') is not None:
+            finding.cvssv3 = _temp.get('CVSS_vector')
         finding.verified = True
         finding.unsaved_endpoints = list()
         finding.unsaved_endpoints.append(ep)
@@ -215,4 +253,7 @@ class QualysParser(object):
         return "Qualys WebGUI output files can be imported in XML format."
 
     def get_findings(self, file, test):
-        return qualys_parser(file)
+        if file.name.lower().endswith('.csv'):
+            return csv_parser.parse_csv(file)
+        else:
+            return qualys_parser(file)

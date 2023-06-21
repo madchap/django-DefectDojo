@@ -9,12 +9,13 @@ from django.http import HttpResponseRedirect, HttpResponse, HttpRequest
 from django.shortcuts import render
 from django.utils import timezone
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from dojo.utils import add_breadcrumb, get_punchcard_data
 from dojo.models import Answered_Survey
 from dojo.authorization.roles_permissions import Permissions
 from dojo.engagement.queries import get_authorized_engagements
 from dojo.finding.queries import get_authorized_findings
+from dojo.authorization.authorization import user_has_configuration_permission
 
 
 def home(request: HttpRequest) -> HttpResponse:
@@ -46,7 +47,11 @@ def dashboard(request: HttpRequest) -> HttpResponse:
     severity_count_by_month = get_severities_by_month(findings, today)
     punchcard, ticks = get_punchcard_data(findings, today - relativedelta(weeks=26), 26)
 
-    unassigned_surveys = Answered_Survey.objects.filter(assignee_id__isnull=True, completed__gt=0)
+    if user_has_configuration_permission(request.user, 'dojo.view_engagement_survey'):
+        unassigned_surveys = Answered_Survey.objects.filter(assignee_id__isnull=True, completed__gt=0, ) \
+            .filter(Q(engagement__isnull=True) | Q(engagement__in=engagements))
+    else:
+        unassigned_surveys = None
 
     add_breadcrumb(request=request, clear=True)
     return render(request, 'dojo/dashboard.html', {
@@ -64,6 +69,11 @@ def dashboard(request: HttpRequest) -> HttpResponse:
         'ticks': ticks,
         'surveys': unassigned_surveys,
     })
+
+
+def support(request: HttpRequest) -> HttpResponse:
+    add_breadcrumb(title="Support", top_level=not len(request.GET), request=request)
+    return render(request, 'dojo/support.html', {})
 
 
 def get_severities_all(findings) -> Dict[str, int]:

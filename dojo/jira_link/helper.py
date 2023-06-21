@@ -5,6 +5,7 @@ import io
 import json
 import requests
 from django.conf import settings
+from django.template import TemplateDoesNotExist
 from django.template.loader import render_to_string
 from django.utils import timezone
 from jira import JIRA
@@ -16,7 +17,7 @@ from dojo.notifications.helper import create_notification
 from django.contrib import messages
 from dojo.celery import app
 from dojo.decorators import dojo_async_task, dojo_model_from_id, dojo_model_to_id
-from dojo.utils import truncate_with_dots, prod_name
+from dojo.utils import truncate_with_dots, prod_name, get_file_images
 from django.urls import reverse
 from dojo.forms import JIRAProjectForm, JIRAEngagementForm
 
@@ -95,6 +96,7 @@ def can_be_pushed_to_jira(obj, form=None):
         return True, None, None
 
     if obj.has_jira_issue:
+        # findings or groups already having an existing jira issue can always be pushed
         return True, None, None
 
     if type(obj) == Finding:
@@ -341,10 +343,14 @@ def has_jira_configured(obj):
 
 def get_jira_connection_raw(jira_server, jira_username, jira_password):
     try:
-        jira = JIRA(server=jira_server,
-                basic_auth=(jira_username, jira_password),
-                options={"verify": settings.JIRA_SSL_VERIFY},
-                max_retries=0)
+        jira = JIRA(
+            server=jira_server,
+            basic_auth=(jira_username, jira_password),
+            max_retries=0,
+            options={
+                "verify": settings.JIRA_SSL_VERIFY,
+                "headers": settings.ADDITIONAL_HEADERS,
+            })
 
         logger.debug('logged in to JIRA ''%s'' successfully', jira_server)
 
@@ -407,19 +413,54 @@ def jira_transition(jira, issue, transition_id):
             jira.transition_issue(issue, transition_id)
             return True
     except JIRAError as jira_error:
-        logger.debug('error transisioning jira issue ' + issue.key + ' ' + str(jira_error))
+        logger.debug('error transitioning jira issue ' + issue.key + ' ' + str(jira_error))
         logger.exception(jira_error)
-        log_jira_generic_alert('error transitioning jira issue ' + issue.key, str(jira_error))
+        alert_text = "JiraError HTTP %s" % jira_error.status_code
+        if jira_error.url:
+            alert_text += " url: %s" % jira_error.url
+        if jira_error.text:
+            alert_text += "\ntext: %s" % jira_error.text
+        log_jira_generic_alert('error transitioning jira issue ' + issue.key, alert_text)
         return None
+
+
+# Used for unit testing so geting all the connections is manadatory
+def get_jira_updated(finding):
+    if finding.has_jira_issue:
+        j_issue = finding.jira_issue.jira_id
+    elif finding.finding_group and finding.finding_group.has_jira_issue:
+        j_issue = finding.finding_group.jira_issue.jira_id
+
+    if j_issue:
+        project = get_jira_project(finding)
+        issue = jira_get_issue(project, j_issue)
+        return issue.fields.updated
 
 
 # Used for unit testing so geting all the connections is manadatory
 def get_jira_status(finding):
     if finding.has_jira_issue:
         j_issue = finding.jira_issue.jira_id
+    elif finding.finding_group and finding.finding_group.has_jira_issue:
+        j_issue = finding.finding_group.jira_issue.jira_id
+
+    if j_issue:
         project = get_jira_project(finding)
         issue = jira_get_issue(project, j_issue)
         return issue.fields.status
+
+
+# Used for unit testing so geting all the connections is manadatory
+def get_jira_comments(finding):
+    if finding.has_jira_issue:
+        j_issue = finding.jira_issue.jira_id
+    elif finding.finding_group and finding.finding_group.has_jira_issue:
+        j_issue = finding.finding_group.jira_issue.jira_id
+
+    if j_issue:
+        project = get_jira_project(finding)
+        issue = jira_get_issue(project, j_issue)
+        return issue.fields.comment.comments
 
 
 # Logs the error to the alerts table, which appears in the notification toolbar
@@ -438,7 +479,7 @@ def log_jira_alert(error, obj):
         event='jira_update',
         title='Error pushing to JIRA ' + '(' + truncate_with_dots(prod_name(obj), 25) + ')',
         description=to_str_typed(obj) + ', ' + error,
-        url=obj.get_absolute_url,
+        url=obj.get_absolute_url(),
         icon='bullseye',
         source='Push to JIRA',
         obj=obj)
@@ -456,30 +497,62 @@ def log_jira_message(text, finding):
 
 
 def get_labels(obj):
-    # Update Label with system setttings label
+    # Update Label with system settings label
     labels = []
     system_settings = System_Settings.objects.get()
     system_labels = system_settings.jira_labels
-    if system_labels is None:
-        return
-    else:
+    prod_name_label = prod_name(obj).replace(" ", "_")
+    jira_project = get_jira_project(obj)
+
+    if system_labels:
         system_labels = system_labels.split()
-    if len(system_labels) > 0:
         for system_label in system_labels:
             labels.append(system_label)
-    # Update the label with the product name (underscore)
-    labels.append(prod_name(obj).replace(" ", "_"))
+        # Update the label with the product name (underscore)
+        labels.append(prod_name_label)
+
+    # labels per-product/engagement
+    if jira_project and jira_project.jira_labels:
+        project_labels = jira_project.jira_labels.split()
+        for project_label in project_labels:
+            labels.append(project_label)
+        # Update the label with the product name (underscore)
+        if prod_name_label not in labels:
+            labels.append(prod_name_label)
+
+    if system_settings.add_vulnerability_id_to_jira_label or jira_project and jira_project.add_vulnerability_id_to_jira_label:
+        if type(obj) == Finding and obj.vulnerability_ids:
+            for id in obj.vulnerability_ids:
+                labels.append(id)
+        elif type(obj) == Finding_Group:
+            for finding in obj.findings.all():
+                for id in finding.vulnerability_ids:
+                    labels.append(id)
+
     return labels
 
 
+def get_tags(obj):
+    # Update Label with system setttings label
+    tags = []
+    if isinstance(obj, Finding) or isinstance(obj, Engagement):
+        obj_tags = obj.tags.all()
+        if obj_tags:
+            for tag in obj_tags:
+                tags.append(str(tag.name.replace(' ', '-')))
+    return tags
+
+
 def jira_summary(obj):
+    summary = ''
+
     if type(obj) == Finding:
-        return obj.title
+        summary = obj.title
 
     if type(obj) == Finding_Group:
-        return obj.name
+        summary = obj.name
 
-    return None
+    return summary.replace('\r', '').replace('\n', '')[:255]
 
 
 def jira_description(obj):
@@ -512,6 +585,9 @@ def jira_environment(obj):
 
 
 def push_to_jira(obj, *args, **kwargs):
+    if obj is None:
+        raise ValueError('Cannot push None to JIRA')
+
     if isinstance(obj, Finding):
         finding = obj
         if finding.has_jira_issue:
@@ -565,6 +641,51 @@ def add_jira_issue_for_finding_group(finding_group, *args, **kwargs):
     return add_jira_issue(finding_group, *args, **kwargs)
 
 
+def prepare_jira_issue_fields(
+        project_key,
+        issuetype_name,
+        summary,
+        description,
+        component_name=None,
+        custom_fields=None,
+        labels=None,
+        environment=None,
+        priority_name=None,
+        epic_name_field=None,
+        duedate=None,
+        issuetype_fields=[]):
+
+    fields = {
+            'project': {'key': project_key},
+            'issuetype': {'name': issuetype_name},
+            'summary': summary,
+            'description': description,
+    }
+
+    if component_name:
+        fields['components'] = [{'name': component_name}]
+
+    if custom_fields:
+        fields.update(custom_fields)
+
+    if labels and 'labels' in issuetype_fields:
+        fields['labels'] = labels
+
+    if environment and 'environment' in issuetype_fields:
+        fields['environment'] = environment
+
+    if priority_name and 'priority' in issuetype_fields:
+        fields['priority'] = {'name': priority_name}
+
+    if epic_name_field and epic_name_field in issuetype_fields:
+        fields[epic_name_field] = summary
+
+    if duedate and 'duedate' in issuetype_fields:
+        fields['duedate'] = duedate.strftime('%Y-%m-%d')
+
+    return fields
+
+
 def add_jira_issue(obj, *args, **kwargs):
     logger.info('trying to create a new jira issue for %d:%s', obj.id, to_str_typed(obj))
 
@@ -582,9 +703,12 @@ def add_jira_issue(obj, *args, **kwargs):
 
     obj_can_be_pushed_to_jira, error_message, error_code = can_be_pushed_to_jira(obj)
     if not obj_can_be_pushed_to_jira:
-        log_jira_alert(error_message, obj)
-        logger.warn("%s cannot be pushed to JIRA: %s.", to_str_typed(obj), error_message)
-        logger.warn("The JIRA issue will NOT be created.")
+        if type(obj) == Finding and obj.duplicate and not obj.active:
+            logger.warning("%s will not be pushed to JIRA as it's a duplicate finding", to_str_typed(obj))
+        else:
+            log_jira_alert(error_message, obj)
+            logger.warning("%s cannot be pushed to JIRA: %s.", to_str_typed(obj), error_message)
+            logger.warning("The JIRA issue will NOT be created.")
         return False
     logger.debug('Trying to create a new JIRA issue for %s...', to_str_typed(obj))
     meta = None
@@ -592,61 +716,33 @@ def add_jira_issue(obj, *args, **kwargs):
         JIRAError.log_to_tempfile = False
         jira = get_jira_connection(jira_instance)
 
-        fields = {
-                'project': {
-                    'key': jira_project.project_key
-                },
-                'summary': jira_summary(obj),
-                'description': jira_description(obj),
-                'issuetype': {
-                    'name': jira_instance.default_issue_type
-                },
-        }
-
-        if jira_project.component:
-            fields['components'] = [
-                    {
-                        'name': jira_project.component
-                    },
-            ]
-
-        # populate duedate field, but only if it's available for this project + issuetype
-        if not meta:
-            meta = get_jira_meta(jira, jira_project)
-
-        epic_name_field = get_epic_name_field_name(jira_instance)
-        if epic_name_field in meta['projects'][0]['issuetypes'][0]['fields']:
-            # epic name is present in this issuetype
-            # epic name is always mandatory in jira, so we populate it
-            fields[epic_name_field] = fields['summary']
-
-        if 'priority' in meta['projects'][0]['issuetypes'][0]['fields']:
-            fields['priority'] = {
-                                    'name': jira_priority(obj)
-                                }
-
-        labels = get_labels(obj)
+        labels = get_labels(obj) + get_tags(obj)
         if labels:
-            if 'labels' in meta['projects'][0]['issuetypes'][0]['fields']:
-                fields['labels'] = labels
+            labels = list(dict.fromkeys(labels))  # de-dup
 
+        duedate = None
         if System_Settings.objects.get().enable_finding_sla:
+            duedate = obj.sla_deadline()
 
-            if 'duedate' in meta['projects'][0]['issuetypes'][0]['fields']:
-                # jira wants YYYY-MM-DD
-                duedate = obj.sla_deadline()
-                if duedate:
-                    fields['duedate'] = duedate.strftime('%Y-%m-%d')
-
-        if not meta:
-            meta = get_jira_meta(jira, jira_project)
-
-        if 'environment' in meta['projects'][0]['issuetypes'][0]['fields']:
-            fields['environment'] = jira_environment(obj)
+        issuetype_fields = get_issuetype_fields(jira, jira_project.project_key, jira_instance.default_issue_type)
+        fields = prepare_jira_issue_fields(
+            project_key=jira_project.project_key,
+            issuetype_name=jira_instance.default_issue_type,
+            summary=jira_summary(obj),
+            description=jira_description(obj),
+            component_name=jira_project.component,
+            custom_fields=jira_project.custom_fields,
+            labels=labels,
+            environment=jira_environment(obj),
+            priority_name=jira_priority(obj),
+            epic_name_field=get_epic_name_field_name(jira_instance),
+            duedate=duedate,
+            issuetype_fields=issuetype_fields)
 
         logger.debug('sending fields to JIRA: %s', fields)
-
         new_issue = jira.create_issue(fields)
+        if jira_project.default_assignee:
+            jira.assign_issue(new_issue.key, jira_project.default_assignee)
 
         # Upload dojo finding screenshots to Jira
         findings = [obj]
@@ -654,10 +750,15 @@ def add_jira_issue(obj, *args, **kwargs):
             findings = obj.findings.all()
 
         for find in findings:
-            for pic in find.images.all():
-                jira_attachment(
-                    find, jira, new_issue,
-                    settings.MEDIA_ROOT + pic.image_large.name)
+            for pic in get_file_images(find):
+                # It doesn't look like the celery cotainer has anything in the media
+                # folder. Has this feature ever worked?
+                try:
+                    jira_attachment(
+                        find, jira, new_issue,
+                        settings.MEDIA_ROOT + '/' + pic)
+                except FileNotFoundError as e:
+                    logger.info(e)
 
         if jira_project.enable_engagement_epic_mapping:
             eng = obj.test.engagement
@@ -668,7 +769,7 @@ def add_jira_issue(obj, *args, **kwargs):
             else:
                 logger.info('The following EPIC does not exist: %s', eng.name)
 
-        # only link the new issue if it was succefully created, incl attachments and epic link
+        # only link the new issue if it was successfully created, incl attachments and epic link
         logger.debug('saving JIRA_Issue for %s finding %s', new_issue.key, obj.id)
         j_issue = JIRA_Issue(
             jira_id=new_issue.id, jira_key=new_issue.key, jira_project=jira_project)
@@ -680,7 +781,18 @@ def add_jira_issue(obj, *args, **kwargs):
         issue = jira.issue(new_issue.id)
 
         logger.info('Created the following jira issue for %d:%s', obj.id, to_str_typed(obj))
+
+        # Add any notes that already exist in the finding to the JIRA
+        for find in findings:
+            if find.notes.all():
+                for note in find.notes.all().reverse():
+                    add_comment(obj, note)
+
         return True
+    except TemplateDoesNotExist as e:
+        logger.exception(e)
+        log_jira_alert(str(e), obj)
+        return False
     except JIRAError as e:
         logger.exception(e)
         logger.error("jira_meta for project: %s and url: %s meta: %s", jira_project.project_key, jira_project.jira_instance.url, json.dumps(meta, indent=4))  # this is None safe
@@ -726,41 +838,30 @@ def update_jira_issue(obj, *args, **kwargs):
     try:
         JIRAError.log_to_tempfile = False
         jira = get_jira_connection(jira_instance)
-
         issue = jira.issue(j_issue.jira_id)
 
-        fields = {}
-        # Only update the component if it didn't exist earlier in Jira, this is to avoid assigning multiple components to an item
-        if issue.fields.components:
-            log_jira_alert(
-                "Component not updated, exists in Jira already. Update from Jira instead.",
-                obj)
-        elif jira_project.component:
-            # Add component to the Jira issue
-            component = [
-                {
-                    'name': jira_project.component
-                },
-            ]
-            fields = {"components": component}
-
-        if not meta:
-            meta = get_jira_meta(jira, jira_project)
-
-        labels = get_labels(obj)
+        labels = get_labels(obj) + get_tags(obj)
         if labels:
-            if 'labels' in meta['projects'][0]['issuetypes'][0]['fields']:
-                fields['labels'] = labels
+            labels = list(dict.fromkeys(labels))  # de-dup
 
-        if 'environment' in meta['projects'][0]['issuetypes'][0]['fields']:
-            fields['environment'] = jira_environment(obj)
+        issuetype_fields = get_issuetype_fields(jira, jira_project.project_key, jira_instance.default_issue_type)
+        fields = prepare_jira_issue_fields(
+            project_key=jira_project.project_key,
+            issuetype_name=jira_instance.default_issue_type,
+            summary=jira_summary(obj),
+            description=jira_description(obj),
+            component_name=jira_project.component if not issue.fields.components else None,
+            labels=labels,
+            environment=jira_environment(obj),
+            priority_name=jira_priority(obj),
+            issuetype_fields=issuetype_fields)
 
         logger.debug('sending fields to JIRA: %s', fields)
 
         issue.update(
-            summary=jira_summary(obj),
-            description=jira_description(obj),
-            priority={'name': jira_priority(obj)},
+            summary=fields['summary'],
+            description=fields['description'],
+            priority=fields['priority'],
             fields=fields)
 
         push_status_to_jira(obj, jira_instance, jira, issue)
@@ -771,10 +872,15 @@ def update_jira_issue(obj, *args, **kwargs):
             findings = obj.findings.all()
 
         for find in findings:
-            for pic in find.images.all():
-                jira_attachment(
-                    find, jira, issue,
-                    settings.MEDIA_ROOT + pic.image_large.name)
+            for pic in get_file_images(find):
+                # It doesn't look like the celery cotainer has anything in the media
+                # folder. Has this feature ever worked?
+                try:
+                    jira_attachment(
+                        find, jira, issue,
+                        settings.MEDIA_ROOT + '/' + pic)
+                except FileNotFoundError as e:
+                    logger.info(e)
 
         if jira_project.enable_engagement_epic_mapping:
             eng = find.test.engagement
@@ -794,7 +900,9 @@ def update_jira_issue(obj, *args, **kwargs):
     except JIRAError as e:
         logger.exception(e)
         logger.error("jira_meta for project: %s and url: %s meta: %s", jira_project.project_key, jira_project.jira_instance.url, json.dumps(meta, indent=4))  # this is None safe
-        log_jira_alert(e.text, obj)
+        if issue_from_jira_is_active(issue):
+            # Only alert if the upstream JIRA is active, we don't care about closed issues
+            log_jira_alert(e.text, obj)
         return False
 
 
@@ -884,61 +992,80 @@ def push_status_to_jira(obj, jira_instance, jira, issue, save=False):
         obj.jira_issue.save()
 
 
-# gets the metadata for the default issue type in this jira project
-def get_jira_meta(jira, jira_project):
-    meta = jira.createmeta(projectKeys=jira_project.project_key, issuetypeNames=jira_project.jira_instance.default_issue_type, expand="projects.issuetypes.fields")
+# gets the metadata for the provided issue type in the provided jira project
+def get_issuetype_fields(
+        jira,
+        project_key,
+        issuetype_name):
 
-    meta_data_error = False
-    if len(meta['projects']) == 0:
-        # non-existent project, or no permissions
-        # [09/Nov/2020 21:04:22] DEBUG [dojo.jira_link.helper:595] get_jira_meta: {
-        #     "expand": "projects",
-        #     "projects": []
-        # }
-        meta_data_error = True
-        message = 'unable to retrieve metadata from JIRA %s for project %s. Invalid project key or no permissions to this project?' % (jira_project.jira_instance, jira_project.project_key)
+    issuetype_fields = None
+    use_cloud_api = jira.deploymentType.lower() == 'cloud' or jira._version < (9, 0, 0)
+    try:
+        if use_cloud_api:
+            try:
+                meta = jira.createmeta(
+                        projectKeys=project_key,
+                        issuetypeNames=issuetype_name,
+                        expand="projects.issuetypes.fields")
+            except JIRAError as e:
+                e.text = f"Jira API call 'createmeta' failed with status: {e.status_code} and message: {e.text}"
+                raise e
 
-    elif len(meta['projects'][0]['issuetypes']) == 0:
-        # default issue type doesn't exist in project
-        # [09/Nov/2020 21:09:03] DEBUG [dojo.jira_link.helper:595] get_jira_meta: {
-        #     "expand": "projects",
-        #     "projects": [
-        #         {
-        #             "expand": "issuetypes",
-        #             "self": "https://jira-uat.com/rest/api/2/project/1212",
-        #             "id": "1212",
-        #             "key": "ISO",
-        #             "name": "ISO ISMS",
-        #             "avatarUrls": {
-        #                 "48x48": "https://jira-uat.com/secure/projectavatar?pid=14431&avatarId=17200",
-        #                 "24x24": "https://jira-uat.com/secure/projectavatar?size=small&pid=14431&avatarId=17200",
-        #                 "16x16": "https://jira-uat.com/secure/projectavatar?size=xsmall&pid=14431&avatarId=17200",
-        #                 "32x32": "https://jira-uat.com/secure/projectavatar?size=medium&pid=14431&avatarId=17200"
-        #             },
-        #             "issuetypes": []
-        #         }
-        #     ]
-        # }
-        meta_data_error = True
-        message = 'unable to retrieve metadata from JIRA %s for issuetype %s in project %s. Invalid default issue type configured in Defect Dojo?' % (jira_project.jira_instance, jira_project.jira_instance.default_issue_type, jira_project.project_key)
+            project = None
+            try:
+                project = meta['projects'][0]
+            except Exception as e:
+                raise JIRAError("Project misconfigured or no permissions in Jira ?")
 
-    if meta_data_error:
-        logger.warn(message)
-        logger.warn("get_jira_meta: %s", json.dumps(meta, indent=4))  # this is None safe
+            try:
+                issuetype_fields = project['issuetypes'][0]['fields'].keys()
+            except Exception as e:
+                raise JIRAError("Misconfigured default issue type ?")
 
-        add_error_message_to_response(message)
+        else:
+            try:
+                issuetypes = jira.createmeta_issuetypes(project_key)
+            except JIRAError as e:
+                e.text = f"Jira API call 'createmeta/issuetypes' failed with status: {e.status_code} and message: {e.text}. Project misconfigured or no permissions in Jira ?"
+                raise e
 
-        raise JIRAError(text=message)
-    else:
-        return meta
+            issuetype_id = None
+            for it in issuetypes['values']:
+                if it['name'] == issuetype_name:
+                    issuetype_id = it['id']
+                    break
+
+            if not issuetype_id:
+                raise JIRAError("Issue type ID can not be matched. Misconfigured default issue type ?")
+
+            try:
+                issuetype_fields = jira.createmeta_fieldtypes(project_key, issuetype_id)
+            except JIRAError as e:
+                e.text = f"Jira API call 'createmeta/fieldtypes' failed with status: {e.status_code} and message: {e.text}. Misconfigured project or default issue type ?"
+                raise e
+
+            try:
+                issuetype_fields = [f['fieldId'] for f in issuetype_fields['values']]
+            except Exception as e:
+                raise JIRAError("Misconfigured default issue type ?")
+
+    except JIRAError as e:
+        e.text = f"Failed retrieving field metadata from Jira version: {jira._version}, project: {project_key}, issue type: {issuetype_name}. {e.text}"
+        logger.warning(e.text)
+        add_error_message_to_response(e.text)
+
+        raise e
+
+    return issuetype_fields
 
 
 def is_jira_project_valid(jira_project):
     try:
-        meta = get_jira_meta(get_jira_connection(jira_project), jira_project)
+        jira = get_jira_connection(jira_project)
+        get_issuetype_fields(jira, jira_project.project_key, jira_project.jira_instance.default_issue_type)
         return True
     except JIRAError as e:
-        logger.debug('invalid JIRA Project Config, can''t retrieve metadata for: ''%s''', jira_project)
+        logger.debug("invalid JIRA Project Config, can't retrieve metadata for '%s'", jira_project)
         return False
 
 
@@ -983,7 +1110,7 @@ def jira_check_attachment(issue, source_file_name):
 @dojo_async_task
 @app.task
 @dojo_model_from_id(model=Engagement)
-def close_epic(eng, push_to_jira):
+def close_epic(eng, push_to_jira, **kwargs):
     engagement = eng
     if not is_jira_enabled():
         return False
@@ -998,7 +1125,7 @@ def close_epic(eng, push_to_jira):
             try:
                 jissue = get_jira_issue(eng)
                 if jissue is None:
-                    logger.warn("JIRA close epic failed: no issue found")
+                    logger.warning("JIRA close epic failed: no issue found")
                     return False
 
                 req_url = jira_instance.url + '/rest/api/latest/issue/' + \
@@ -1009,7 +1136,7 @@ def close_epic(eng, push_to_jira):
                     auth=HTTPBasicAuth(jira_instance.username, jira_instance.password),
                     json=json_data)
                 if r.status_code != 204:
-                    logger.warn("JIRA close epic failed with error: {}".format(r.text))
+                    logger.warning("JIRA close epic failed with error: {}".format(r.text))
                     return False
                 return True
             except JIRAError as e:
@@ -1025,7 +1152,7 @@ def close_epic(eng, push_to_jira):
 @dojo_async_task
 @app.task
 @dojo_model_from_id(model=Engagement)
-def update_epic(engagement):
+def update_epic(engagement, **kwargs):
     logger.debug('trying to update jira EPIC for %d:%s', engagement.id, engagement.name)
 
     if not is_jira_configured_and_enabled(engagement):
@@ -1040,7 +1167,12 @@ def update_epic(engagement):
             jira = get_jira_connection(jira_instance)
             j_issue = get_jira_issue(engagement)
             issue = jira.issue(j_issue.jira_id)
-            issue.update(summary=engagement.name, description=engagement.name)
+
+            epic_name = kwargs.get('epic_name')
+            if not epic_name:
+                epic_name = engagement.name
+
+            issue.update(summary=epic_name, description=epic_name)
             return True
         except JIRAError as e:
             logger.exception(e)
@@ -1056,7 +1188,7 @@ def update_epic(engagement):
 @dojo_async_task
 @app.task
 @dojo_model_from_id(model=Engagement)
-def add_epic(engagement):
+def add_epic(engagement, **kwargs):
     logger.debug('trying to create a new jira EPIC for %d:%s', engagement.id, engagement.name)
 
     if not is_jira_configured_and_enabled(engagement):
@@ -1067,17 +1199,22 @@ def add_epic(engagement):
     jira_project = get_jira_project(engagement)
     jira_instance = get_jira_instance(engagement)
     if jira_project.enable_engagement_epic_mapping:
+        epic_name = kwargs.get('epic_name')
+        if not epic_name:
+            epic_name = engagement.name
         issue_dict = {
             'project': {
                 'key': jira_project.project_key
             },
-            'summary': engagement.name,
-            'description': engagement.name,
+            'summary': epic_name,
+            'description': epic_name,
             'issuetype': {
                 'name': 'Epic'
             },
-            get_epic_name_field_name(jira_instance): engagement.name,
+            get_epic_name_field_name(jira_instance): epic_name,
         }
+        if kwargs.get('epic_priority'):
+            issue_dict['priority'] = {'name': kwargs.get('epic_priority')}
         try:
             jira = get_jira_connection(jira_instance)
             logger.debug('add_epic: %s', issue_dict)
@@ -1130,7 +1267,7 @@ def jira_get_issue(jira_project, issue_key):
 @app.task
 @dojo_model_from_id(model=Notes, parameter=1)
 @dojo_model_from_id
-def add_comment(obj, note, force_push=False):
+def add_comment(obj, note, force_push=False, **kwargs):
     if not is_jira_configured_and_enabled(obj):
         return False
 
@@ -1193,6 +1330,38 @@ def finding_link_jira(request, finding, new_jira_issue_key):
     finding.save(push_to_jira=False, dedupe_option=False, issue_updater_option=False)
 
     jira_issue_url = get_jira_url(finding)
+
+    return True
+
+
+def finding_group_link_jira(request, finding_group, new_jira_issue_key):
+    logger.debug('linking existing jira issue %s for finding group %i', new_jira_issue_key, finding_group.id)
+
+    existing_jira_issue = jira_get_issue(get_jira_project(finding_group), new_jira_issue_key)
+
+    jira_project = get_jira_project(finding_group)
+
+    if not existing_jira_issue:
+        raise ValueError('JIRA issue not found or cannot be retrieved: ' + new_jira_issue_key)
+
+    jira_issue = JIRA_Issue(
+        jira_id=existing_jira_issue.id,
+        jira_key=existing_jira_issue.key,
+        finding_group=finding_group,
+        jira_project=jira_project)
+
+    jira_issue.jira_key = new_jira_issue_key
+    # jira timestampe are in iso format: 'updated': '2020-07-17T09:49:51.447+0200'
+    # seems to be a pain to parse these in python < 3.7, so for now just record the curent time as
+    # as the timestamp the jira link was created / updated in DD
+    jira_issue.jira_creation = timezone.now()
+    jira_issue.jira_change = timezone.now()
+
+    jira_issue.save()
+
+    finding_group.save()
+
+    jira_issue_url = get_jira_url(finding_group)
 
     return True
 
@@ -1272,7 +1441,7 @@ def process_jira_project_form(request, instance=None, target=None, product=None,
                                                 'JIRA Project config stored successfully.',
                                                 extra_tags='alert-success')
                         error = False
-                        logger.debug('stored JIRA_Project succesfully')
+                        logger.debug('stored JIRA_Project successfully')
             except Exception as e:
                 error = True
                 logger.exception(e)
@@ -1305,8 +1474,14 @@ def process_jira_epic_form(request, engagement=None):
         if jira_epic_form.is_valid():
             if jira_epic_form.cleaned_data.get('push_to_jira'):
                 logger.debug('pushing engagement to JIRA')
-                if push_to_jira(engagement):
-                    logger.debug('Push to JIRA for Epic queued succesfully')
+                epic_name = engagement.name
+                if jira_epic_form.cleaned_data.get('epic_name'):
+                    epic_name = jira_epic_form.cleaned_data.get('epic_name')
+                epic_priority = None
+                if jira_epic_form.cleaned_data.get('epic_priority'):
+                    epic_priority = jira_epic_form.cleaned_data.get('epic_priority')
+                if push_to_jira(engagement, epic_name=epic_name, epic_priority=epic_priority):
+                    logger.debug('Push to JIRA for Epic queued successfully')
                     messages.add_message(
                         request,
                         messages.SUCCESS,
@@ -1347,7 +1522,7 @@ def process_resolution_from_jira(finding, resolution_id, resolution_name, assign
                 logger.debug("Marking related finding of {} as accepted. Creating risk acceptance.".format(jira_issue.jira_key))
                 finding.active = False
                 finding.mitigated = None
-                finding.is_Mitigated = False
+                finding.is_mitigated = False
                 finding.false_p = False
                 ra = Risk_Acceptance.objects.create(
                     accepted_by=assignee_name,
@@ -1362,17 +1537,17 @@ def process_resolution_from_jira(finding, resolution_id, resolution_name, assign
                 finding.active = False
                 finding.verified = False
                 finding.mitigated = None
-                finding.is_Mitigated = False
+                finding.is_mitigated = False
                 finding.false_p = True
                 ra_helper.risk_unaccept(finding)
                 status_changed = True
         else:
             # Mitigated by default as before
-            if not finding.is_Mitigated:
+            if not finding.is_mitigated:
                 logger.debug("Marking related finding of {} as mitigated (default)".format(jira_issue.jira_key))
                 finding.active = False
                 finding.mitigated = jira_now
-                finding.is_Mitigated = True
+                finding.is_mitigated = True
                 finding.mitigated_by, created = User.objects.get_or_create(username='JIRA')
                 finding.endpoints.clear()
                 finding.false_p = False
@@ -1384,7 +1559,7 @@ def process_resolution_from_jira(finding, resolution_id, resolution_name, assign
             logger.debug("Re-opening related finding of {}".format(jira_issue.jira_key))
             finding.active = True
             finding.mitigated = None
-            finding.is_Mitigated = False
+            finding.is_mitigated = False
             finding.false_p = False
             ra_helper.risk_unaccept(finding)
             status_changed = True

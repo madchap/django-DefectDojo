@@ -1,18 +1,33 @@
+from django.db.models.query_utils import Q
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch.dispatcher import receiver
 from dojo.celery import app
 from dojo.decorators import dojo_async_task, dojo_model_from_id, dojo_model_to_id
+import dojo.jira_link.helper as jira_helper
 import logging
 from time import strftime
 from django.utils import timezone
 from django.conf import settings
 from fieldsignals import pre_save_changed
 from dojo.utils import get_current_user, mass_model_updater, to_str_typed
-from dojo.models import Engagement, Finding, Finding_Group, System_Settings, Test
+from dojo.models import Engagement, Finding, Finding_Group, System_Settings, Test, Endpoint, Endpoint_Status, \
+    Vulnerability_Id, Vulnerability_Id_Template
+from dojo.endpoint.utils import save_endpoints_to_add
 
 
 logger = logging.getLogger(__name__)
 deduplicationLogger = logging.getLogger("dojo.specific-loggers.deduplication")
+
+OPEN_FINDINGS_QUERY = Q(active=True)
+VERIFIED_FINDINGS_QUERY = Q(active=True, verified=True)
+OUT_OF_SCOPE_FINDINGS_QUERY = Q(active=False, out_of_scope=True)
+FALSE_POSITIVE_FINDINGS_QUERY = Q(active=False, duplicate=False, false_p=True)
+INACTIVE_FINDINGS_QUERY = Q(active=False, duplicate=False, is_mitigated=False, false_p=False, out_of_scope=False)
+ACCEPTED_FINDINGS_QUERY = Q(risk_accepted=True)
+NOT_ACCEPTED_FINDINGS_QUERY = Q(risk_accepted=False)
+WAS_ACCEPTED_FINDINGS_QUERY = Q(risk_acceptance__isnull=False) & Q(risk_acceptance__expiration_date_handled__isnull=False)
+CLOSED_FINDINGS_QUERY = Q(is_mitigated=True)
+UNDER_REVIEW_QUERY = Q(under_review=True)
 
 
 # this signal is triggered just before a finding is getting saved
@@ -37,9 +52,21 @@ def pre_save_finding_status_change(sender, instance, changed_fields=None, **kwar
 
 
 # also get signal when id is set/changed so we can process new findings
-pre_save_changed.connect(pre_save_finding_status_change, sender=Finding, fields=['id', 'active', 'verfied', 'false_p', 'is_Mitigated', 'mitigated', 'mitigated_by', 'out_of_scope', 'risk_accepted'])
-# pre_save_changed.connect(pre_save_finding_status_change, sender=Finding)
-# post_save_changed.connect(pre_save_finding_status_change, sender=Finding, fields=['active', 'verfied', 'false_p', 'is_Mitigated', 'mitigated', 'mitigated_by', 'out_of_scope'])
+pre_save_changed.connect(
+    pre_save_finding_status_change,
+    sender=Finding,
+    fields=[
+        "id",
+        "active",
+        "verified",
+        "false_p",
+        "is_mitigated",
+        "mitigated",
+        "mitigated_by",
+        "out_of_scope",
+        "risk_accepted",
+    ],
+)
 
 
 def update_finding_status(new_state_finding, user, changed_fields=None):
@@ -57,9 +84,9 @@ def update_finding_status(new_state_finding, user, changed_fields=None):
     # marked as duplicate
     # marked as original
 
-    if is_new_finding or 'is_Mitigated' in changed_fields:
+    if is_new_finding or 'is_mitigated' in changed_fields:
         # finding is being mitigated
-        if new_state_finding.is_Mitigated:
+        if new_state_finding.is_mitigated:
             # when mitigating a finding, the meta fields can only be editted if allowed
             logger.debug('finding being mitigated, set mitigated and mitigated_by fields')
 
@@ -76,7 +103,7 @@ def update_finding_status(new_state_finding, user, changed_fields=None):
             new_state_finding.mitigated_by = None
 
     # people may try to remove mitigated/mitigated_by by accident
-    if new_state_finding.is_Mitigated:
+    if new_state_finding.is_mitigated:
         new_state_finding.mitigated = new_state_finding.mitigated or now
         new_state_finding.mitigated_by = new_state_finding.mitigated_by or user
 
@@ -85,7 +112,7 @@ def update_finding_status(new_state_finding, user, changed_fields=None):
         if new_state_finding.active:
             new_state_finding.false_p = False
             new_state_finding.out_of_scope = False
-            new_state_finding.is_Mitigated = False
+            new_state_finding.is_mitigated = False
             new_state_finding.mitigated = None
             new_state_finding.mitigated_by = None
         else:
@@ -100,7 +127,7 @@ def update_finding_status(new_state_finding, user, changed_fields=None):
         if new_state_finding.false_p or new_state_finding.out_of_scope:
             new_state_finding.mitigated = new_state_finding.mitigated or now
             new_state_finding.mitigated_by = new_state_finding.mitigated_by or user
-            new_state_finding.is_Mitigated = True
+            new_state_finding.is_mitigated = True
             new_state_finding.active = False
             new_state_finding.verified = False
 
@@ -152,6 +179,11 @@ def add_to_finding_group(finding_group, finds):
     available_findings = [find for find in finds if not find.finding_group_set.all()]
     finding_group.findings.add(*available_findings)
 
+    # Now update the JIRA to add the finding to the finding group
+    if finding_group.has_jira_issue and jira_helper.get_jira_instance(finding_group).finding_jira_sync:
+        logger.debug('pushing to jira from finding.finding_bulk_update_all()')
+        jira_helper.push_to_jira(finding_group)
+
     added = len(available_findings)
     skipped = len(finds) - added
     return finding_group, added, skipped
@@ -160,7 +192,7 @@ def add_to_finding_group(finding_group, finds):
 def remove_from_finding_group(finds):
     removed = 0
     skipped = 0
-    affected_groups = []
+    affected_groups = set()
     for find in finds:
         groups = find.finding_group_set.all()
         if not groups:
@@ -169,11 +201,134 @@ def remove_from_finding_group(finds):
 
         for group in find.finding_group_set.all():
             group.findings.remove(find)
-            affected_groups.append(group)
+            affected_groups.add(group)
 
         removed += 1
 
+    # Now update the JIRA to remove the finding from the finding group
+    for group in affected_groups:
+        if group.has_jira_issue and jira_helper.get_jira_instance(group).finding_jira_sync:
+            logger.debug('pushing to jira from finding.finding_bulk_update_all()')
+            jira_helper.push_to_jira(group)
+
     return affected_groups, removed, skipped
+
+
+def update_finding_group(finding, finding_group):
+    # finding_group = Finding_Group.objects.get(id=group)
+    if finding_group is not None:
+        if finding_group != finding.finding_group:
+            if finding.finding_group:
+                logger.debug('removing finding %d from finding_group %s', finding.id, finding.finding_group)
+                finding.finding_group.findings.remove(finding)
+            logger.debug('adding finding %d to finding_group %s', finding.id, finding_group)
+            finding_group.findings.add(finding)
+    else:
+        if finding.finding_group:
+            logger.debug('removing finding %d from finding_group %s', finding.id, finding.finding_group)
+            finding.finding_group.findings.remove(finding)
+
+
+def get_group_by_group_name(finding, finding_group_by_option):
+    group_name = None
+
+    if finding_group_by_option == 'component_name':
+        group_name = finding.component_name
+    elif finding_group_by_option == 'component_name+component_version':
+        if finding.component_name or finding.component_version:
+            group_name = '%s:%s' % ((finding.component_name if finding.component_name else 'None'),
+                (finding.component_version if finding.component_version else 'None'))
+    elif finding_group_by_option == 'file_path':
+        if finding.file_path:
+            group_name = 'Filepath %s' % (finding.file_path)
+    elif finding_group_by_option == 'finding_title':
+        group_name = finding.title
+    else:
+        raise ValueError("Invalid group_by option %s" % finding_group_by_option)
+
+    if group_name:
+        return 'Findings in: %s' % group_name
+
+    return group_name
+
+
+def group_findings_by(finds, finding_group_by_option):
+    grouped = 0
+    groups_created = 0
+    groups_existing = 0
+    skipped = 0
+    affected_groups = set()
+    for find in finds:
+        if find.finding_group is not None:
+            skipped += 1
+            continue
+
+        group_name = get_group_by_group_name(find, finding_group_by_option)
+        if group_name is None:
+            skipped += 1
+            continue
+
+        finding_group = Finding_Group.objects.filter(test=find.test, name=group_name).first()
+        if not finding_group:
+            finding_group, added, skipped = create_finding_group([find], group_name)
+            groups_created += 1
+            grouped += added
+            skipped += skipped
+        else:
+            add_to_finding_group(finding_group, [find])
+            groups_existing += 1
+            grouped += 1
+
+        affected_groups.add(finding_group)
+
+    # Now update the JIRA to add the finding to the finding group
+    for group in affected_groups:
+        if group.has_jira_issue and jira_helper.get_jira_instance(group).finding_jira_sync:
+            logger.debug('pushing to jira from finding.finding_bulk_update_all()')
+            jira_helper.push_to_jira(group)
+
+    return affected_groups, grouped, skipped, groups_created
+
+
+def add_findings_to_auto_group(name, findings, group_by, create_finding_groups_for_all_findings=True, **kwargs):
+    if name is not None and findings is not None and len(findings) > 0:
+        creator = get_current_user()
+        if not creator:
+            creator = kwargs.get('async_user', None)
+        test = findings[0].test
+
+        if create_finding_groups_for_all_findings or len(findings) > 1:
+            # Only create a finding group if we have more than one finding for a given finding group, unless configured otherwise
+            finding_group, created = Finding_Group.objects.get_or_create(test=test, creator=creator, name=name)
+            if created:
+                logger.debug('Created Finding Group %d:%s for test %d:%s', finding_group.id, finding_group, test.id, test)
+                # See if we have old findings in the same test that were created without a finding group
+                # that should be added to this new group
+                old_findings = Finding.objects.filter(test=test)
+                for f in old_findings:
+                    f_group_name = get_group_by_group_name(f, group_by)
+                    if f_group_name == name and f not in findings:
+                        finding_group.findings.add(f)
+
+            finding_group.findings.add(*findings)
+        else:
+            # Otherwise add to an existing finding group if it exists only
+            try:
+                finding_group = Finding_Group.objects.get(test=test, name=name)
+                if finding_group:
+                    finding_group.findings.add(*findings)
+            except:
+                # See if we have old findings in the same test that were created without a finding group
+                # that match this new finding - then we can create a finding group
+                old_findings = Finding.objects.filter(test=test)
+                created = False
+                for f in old_findings:
+                    f_group_name = get_group_by_group_name(f, group_by)
+                    if f_group_name == name and f not in findings:
+                        finding_group, created = Finding_Group.objects.get_or_create(test=test, creator=creator, name=name)
+                        finding_group.findings.add(f)
+                if created:
+                    finding_group.findings.add(*findings)
 
 
 @dojo_model_to_id
@@ -219,7 +374,14 @@ def post_process_finding_save(finding, dedupe_option=True, false_history=False, 
     if push_to_jira:
         logger.debug('pushing finding %s to jira from finding.save()', finding.pk)
         import dojo.jira_link.helper as jira_helper
-        jira_helper.push_to_jira(finding)
+
+        # current approach is that whenever a finding is in a group, the group will be pushed to JIRA
+        # based on feedback we could introduct another push_group_to_jira boolean everywhere
+        # but what about the push_all boolean? Let's see how this works for now and get some feedback.
+        if finding.has_jira_issue or not finding.finding_group:
+            jira_helper.push_to_jira(finding)
+        elif finding.finding_group:
+            jira_helper.push_to_jira(finding.finding_group)
 
 
 @receiver(pre_delete, sender=Finding)
@@ -229,7 +391,6 @@ def finding_pre_delete(sender, instance, **kwargs):
     # https://code.djangoproject.com/ticket/154
 
     instance.found_by.clear()
-    instance.status_finding.clear()
 
 
 def finding_delete(instance, **kwargs):
@@ -260,7 +421,6 @@ def finding_delete(instance, **kwargs):
     # https://code.djangoproject.com/ticket/154
     logger.debug('finding delete: clearing found by')
     instance.found_by.clear()
-    instance.status_finding.clear()
 
 
 @receiver(post_delete, sender=Finding)
@@ -303,7 +463,8 @@ def reconfigure_duplicate_cluster(original, cluster_outside):
 
             new_original.duplicate = False
             new_original.duplicate_finding = None
-            new_original.active = True
+            new_original.active = original.active
+            new_original.is_mitigated = original.is_mitigated
             new_original.save_no_options()
             new_original.found_by.set(original.found_by.all())
 
@@ -320,7 +481,7 @@ def reconfigure_duplicate_cluster(original, cluster_outside):
 def prepare_duplicates_for_delete(test=None, engagement=None):
     logger.debug('prepare duplicates for delete, test: %s, engagement: %s', test.id if test else None, engagement.id if engagement else None)
     if test is None and engagement is None:
-        logger.warn('nothing to prepare as test and engagement are None')
+        logger.warning('nothing to prepare as test and engagement are None')
 
     fix_loop_duplicates()
 
@@ -452,3 +613,53 @@ def removeLoop(finding_id, counter):
         super(Finding, f).save()
         super(Finding, real_original).save()
         removeLoop(f.id, counter - 1)
+
+
+def add_endpoints(new_finding, form):
+    added_endpoints = save_endpoints_to_add(form.endpoints_to_add_list, new_finding.test.engagement.product)
+    endpoint_ids = []
+    for endpoint in added_endpoints:
+        endpoint_ids.append(endpoint.id)
+
+    new_finding.endpoints.set(form.cleaned_data['endpoints'] | Endpoint.objects.filter(id__in=endpoint_ids))
+
+    for endpoint in new_finding.endpoints.all():
+        eps, created = Endpoint_Status.objects.get_or_create(
+            finding=new_finding,
+            endpoint=endpoint, defaults={'date': form.cleaned_data['date'] or timezone.now()})
+
+
+def save_vulnerability_ids(finding, vulnerability_ids):
+    # Remove duplicates
+    vulnerability_ids = list(dict.fromkeys(vulnerability_ids))
+
+    # Remove old vulnerability ids
+    Vulnerability_Id.objects.filter(finding=finding).delete()
+
+    # Save new vulnerability ids
+    for vulnerability_id in vulnerability_ids:
+        Vulnerability_Id(finding=finding, vulnerability_id=vulnerability_id).save()
+
+    # Set CVE
+    if vulnerability_ids:
+        finding.cve = vulnerability_ids[0]
+    else:
+        finding.cve = None
+
+
+def save_vulnerability_ids_template(finding_template, vulnerability_ids):
+    # Remove duplicates
+    vulnerability_ids = list(dict.fromkeys(vulnerability_ids))
+
+    # Remove old vulnerability ids
+    Vulnerability_Id_Template.objects.filter(finding_template=finding_template).delete()
+
+    # Save new vulnerability ids
+    for vulnerability_id in vulnerability_ids:
+        Vulnerability_Id_Template(finding_template=finding_template, vulnerability_id=vulnerability_id).save()
+
+    # Set CVE
+    if vulnerability_ids:
+        finding_template.cve = vulnerability_ids[0]
+    else:
+        finding_template.cve = None

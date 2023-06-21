@@ -1,7 +1,5 @@
 import hashlib
 import logging
-from urllib.parse import urlparse
-from xml.dom import NamespaceErr
 
 from defusedxml import ElementTree
 
@@ -28,7 +26,7 @@ class IbmAppParser(object):
 
         # validate XML file
         if 'xml-report' not in root.tag:
-            raise NamespaceErr("This does not look like a valid expected Ibm AppScan DAST XML file.")
+            raise ValueError("This does not look like a valid expected Ibm AppScan DAST XML file.")
 
         issue_list = []
         # self.hosts = self.fetch_host_details()
@@ -37,8 +35,6 @@ class IbmAppParser(object):
         # Now time to loop through individual issues and perform necessary actions
         for issue in root.iter("issue-group"):
             for item in issue.iter("item"):
-                impact = "N/A"
-
                 ref_link = ""
                 if item.find("issue-type/ref") is not None:
                     recommendation_data = ""
@@ -46,32 +42,17 @@ class IbmAppParser(object):
 
                     name = issue_data['name']
                     # advisory = issue_data['advisory']
+                    vulnerability_id = issue_data.get('cve')
 
-                    cve = None
-                    if "cve" in issue_data:
-                        cve = issue_data['cve']
+                    cwe = issue_data.get('cwe')
+                    if cwe:
+                        cwe = int(cwe)
 
                     url = self.get_url(root, item.find('url/ref').text)
-                    # in case empty string is returned as url
-                    # this condition is very rare to occur
-                    # As most of the actions of any vuln scanner depends on urls
-                    if url == "N/A":
-                        host = "N/A"
-                        path = ""
-                        scheme = "N/A"
-                        port = ""
-                        query = ""
-                    else:
-                        host = urlparse(url).netloc
-                        path = urlparse(url).path
-                        scheme = urlparse(url).scheme
-                        if scheme == "https":
-                            port = '443'
-                        else:
-                            port = '80'
-                        query = urlparse(url).query
 
                     severity = item.find('severity').text.capitalize()
+                    if severity == 'Informational':
+                        severity = 'Info'
                     issue_description = self.fetch_advisory_group(root, issue_data['advisory'])
 
                     for fix_recommendation_group in root.iter("fix-recommendation-group"):
@@ -96,23 +77,22 @@ class IbmAppParser(object):
                         # create finding
                         finding = Finding(title=name,
                                           test=test,
-                                          cve=cve,
+                                          cwe=cwe,
                                           description=issue_description,
                                           severity=severity,
                                           mitigation=recommendation_data,
-                                          impact=impact,
                                           references=ref_link,
                                           dynamic_finding=True)
-
+                        if vulnerability_id:
+                            finding.unsaved_vulnerability_ids = [vulnerability_id]
                         finding.unsaved_endpoints = list()
                         dupes[dupe_key] = finding
 
-                        finding.unsaved_endpoints.append(Endpoint(
-                            host=host, port=port,
-                            path=path,
-                            protocol=scheme,
-                            query=query
-                        ))
+                        # in case empty string is returned as url
+                        # this condition is very rare to occur
+                        # As most of the actions of any vuln scanner depends on urls
+                        if url:
+                            finding.unsaved_endpoints.append(Endpoint.from_uri(url))
 
         return list(dupes.values())
 
@@ -127,8 +107,16 @@ class IbmAppParser(object):
                     'fix-recommendation': item.find("fix-recommendation/ref").text
                 }
 
-                if "cve" in issue_type:
-                    issues[issue_type.attrib['id']] = {'cve': issue_type.find("cve").text}
+                cve = item.find("cve").text
+                if cve is not None:
+                    issues[item.attrib['id']]['cve'] = cve
+
+                # cwe can be a link
+                cwe = item.find("cwe/link")
+                if cwe is None:
+                    cwe = item.find("cwe")
+                if cwe.text is not None:
+                    issues[item.attrib['id']]['cwe'] = int(cwe.text)
 
         return issues
 
@@ -149,4 +137,4 @@ class IbmAppParser(object):
                 if item.attrib['id'] == ref:
                     return item.find('name').text
 
-        return "N/A"  # This case is very rare to occur
+        return None  # This case is very rare to occur

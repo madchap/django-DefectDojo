@@ -1,5 +1,5 @@
 $(function () {
-    $('body').append('<a id="toTop" title="Back to Top" class="btn btn-primary btn-circle"><i class="fa fa-fw fa-arrow-up"></i></a>');
+    $('body').append('<a id="toTop" title="Back to Top" class="btn btn-primary btn-circle"><i class="fa-solid fa-arrow-up fa-fw"></i></a>');
     $(window).scroll(function () {
         if ($(this).scrollTop() > 300) {
             $('#toTop').fadeIn();
@@ -25,7 +25,7 @@ $(function () {
     })
 
     setTimeout(function () {
-        $('.alert-dismissible').slideUp('slow')
+        $('.alert-dismissible').not('.announcement-banner').slideUp('slow')
     }, 20000);
 
     $('#side-menu').metisMenu();
@@ -62,7 +62,6 @@ $.fn.serializeObject = function()
     return o;
 };
 
-
 function sidebar() {  // minimize side nav bar
     var action = 'min';
     var remove = 'max';
@@ -87,6 +86,20 @@ function sidebar() {  // minimize side nav bar
     $('body').switchClass(remove, action);
 
     return false;
+}
+
+//methods removed in django 3.1. we copy them here to keep this popup thing working
+// but this definately needs a rework, but with UI v2 in the works this is acceptable
+function id_to_windowname(text) {
+    text = text.replace(/\./g, '__dot__');
+    text = text.replace(/\-/g, '__dash__');
+    return text;
+}
+
+function windowname_to_id(text) {
+    text = text.replace(/__dot__/g, '.');
+    text = text.replace(/__dash__/g, '-');
+    return text;
 }
 
 function emptyEndpoints(win) {
@@ -233,11 +246,11 @@ function togglePassVisibility() {
     // swap password
     if (passwdInput.type === "password") {
         passwdInput.type = "text";
-        toggleBox.innerHTML = "<i class='fa fa-eye-slash'></i>\
+        toggleBox.innerHTML = "<i class='fa-solid fa-eye-slash'></i>\
         <span><b>Hide Password</b></span>";
     } else {
         passwdInput.type = "password";
-        toggleBox.innerHTML = "<i class='fa fa-eye'></i>\
+        toggleBox.innerHTML = "<i class='fa-solid fa-eye'></i>\
         <span><b>Show Password</b></span>";
     }
 }

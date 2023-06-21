@@ -10,7 +10,7 @@ from operator import itemgetter
 
 from dateutil.relativedelta import relativedelta
 from django.contrib import messages
-from django.contrib.auth.decorators import user_passes_test
+from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 from django.db.models import Q, Sum, Case, When, IntegerField, Value, Count
 from django.db.models.query import QuerySet
@@ -19,17 +19,14 @@ from django.shortcuts import render, get_object_or_404
 from django.utils.html import escape
 from django.views.decorators.cache import cache_page
 from django.utils import timezone
-from django.core.exceptions import PermissionDenied
-from django.conf import settings
 
-from dojo.filters import MetricsFindingFilter, EngineerFilter, MetricsEndpointFilter
+from dojo.filters import MetricsFindingFilter, UserFilter, MetricsEndpointFilter
 from dojo.forms import SimpleMetricsForm, ProductTypeCountsForm
 from dojo.models import Product_Type, Finding, Product, Engagement, Test, \
     Risk_Acceptance, Dojo_User, Endpoint_Status
 from dojo.utils import get_page_items, add_breadcrumb, findings_this_period, opened_in_period, count_findings, \
     get_period_counts, get_system_setting, get_punchcard_data, queryset_check
 from functools import reduce
-from dojo.user.helper import user_is_authorized
 from django.views.decorators.vary import vary_on_cookie
 from dojo.authorization.roles_permissions import Permissions
 from dojo.product.queries import get_authorized_products
@@ -37,6 +34,7 @@ from dojo.product_type.queries import get_authorized_product_types
 from dojo.finding.queries import get_authorized_findings
 from dojo.endpoint.queries import get_authorized_endpoint_status
 from dojo.authorization.authorization import user_has_permission_or_403
+from django.utils.translation import gettext as _
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +47,7 @@ generic metrics method
 
 def critical_product_metrics(request, mtype):
     template = 'dojo/metrics.html'
-    page_name = 'Critical Product Metrics'
+    page_name = _('Critical Product Metrics')
     critical_products = get_authorized_product_types(Permissions.Product_Type_View)
     critical_products = critical_products.filter(critical_product=True)
     add_breadcrumb(title=page_name, top_level=not len(request.GET), request=request)
@@ -61,45 +59,51 @@ def critical_product_metrics(request, mtype):
 
 
 def get_date_range(objects):
-    start_date = objects.earliest('date').date
-    start_date = datetime(start_date.year,
-                        start_date.month, start_date.day,
-                        tzinfo=timezone.get_current_timezone())
-    end_date = objects.latest('date').date
-    end_date = datetime(end_date.year,
-                        end_date.month, end_date.day,
-                        tzinfo=timezone.get_current_timezone())
+    tz = timezone.get_current_timezone()
 
-    return (start_date, end_date)
+    start_date = objects.earliest('date').date
+    start_date = datetime(start_date.year, start_date.month, start_date.day,
+                        tzinfo=tz)
+    end_date = objects.latest('date').date
+    end_date = datetime(end_date.year, end_date.month, end_date.day,
+                        tzinfo=tz)
+
+    return start_date, end_date
 
 
 def severity_count(queryset, method, expression):
     total_expression = expression + '__in'
     return getattr(queryset, method)(
         total=Sum(
-            Case(When(**{total_expression: ('Critical', 'High', 'Medium', 'Low')},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+            Case(When(**{total_expression: ('Critical', 'High', 'Medium', 'Low', 'Info')},
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
         critical=Sum(
             Case(When(**{expression: 'Critical'},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
         high=Sum(
             Case(When(**{expression: 'High'},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
         medium=Sum(
             Case(When(**{expression: 'Medium'},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
         low=Sum(
             Case(When(**{expression: 'Low'},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
         info=Sum(
             Case(When(**{expression: 'Info'},
-                        then=Value(1)),
-                    output_field=IntegerField())),
+                      then=Value(1)),
+                 output_field=IntegerField(),
+                 default=0)),
     )
 
 
@@ -108,14 +112,16 @@ def identify_view(request):
     view = get_data.get('type', None)
     if view:
         return view
-    else:
-        if get_data.get('finding__severity', None):
-            return 'Endpoint'
-        elif get_data.get('false_positive', None):
-            return 'Endpoint'
+
+    finding_severity = get_data.get('finding__severity', None)
+    false_positive = get_data.get('false_positive', None)
+
     referer = request.META.get('HTTP_REFERER', None)
-    if referer and referer.find('type=Endpoint') > -1:
+    endpoint_in_referer = referer and referer.find('type=Endpoint') > -1
+
+    if finding_severity or false_positive or endpoint_in_referer:
         return 'Endpoint'
+
     return 'Finding'
 
 
@@ -136,48 +142,19 @@ def finding_querys(prod_type, request):
 
     findings_query = get_authorized_findings(Permissions.Finding_View, findings_query, request.user)
 
-    active_findings_query = Finding.objects.filter(
-        verified=True,
-        active=True,
-        severity__in=('Critical', 'High', 'Medium', 'Low', 'Info')
-    ).select_related(
-        'reporter',
-        'test',
-        'test__engagement__product',
-        'test__engagement__product__prod_type',
-    ).prefetch_related(
-        'risk_acceptance_set',
-        'test__engagement__risk_acceptance',
-        'test__test_type',
-    )
-
-    active_findings_query = get_authorized_findings(Permissions.Finding_View, active_findings_query, request.user)
-
     findings = MetricsFindingFilter(request.GET, queryset=findings_query)
-    active_findings = MetricsFindingFilter(request.GET, queryset=active_findings_query)
-
     findings_qs = queryset_check(findings)
-    active_findings_qs = queryset_check(active_findings)
 
     if not findings_qs and not findings_query:
         findings = findings_query
-        active_findings = active_findings_query
         findings_qs = findings if isinstance(findings, QuerySet) else findings.qs
-        active_findings_qs = active_findings if isinstance(active_findings, QuerySet) else active_findings.qs
         messages.add_message(request,
                                      messages.ERROR,
-                                     'All objects have been filtered away. Displaying all objects',
+                                     _('All objects have been filtered away. Displaying all objects'),
                                      extra_tags='alert-danger')
 
     try:
-        start_date = findings_qs.earliest('date').date
-        start_date = datetime(start_date.year,
-                            start_date.month, start_date.day,
-                            tzinfo=timezone.get_current_timezone())
-        end_date = findings_qs.latest('date').date
-        end_date = datetime(end_date.year,
-                            end_date.month, end_date.day,
-                            tzinfo=timezone.get_current_timezone())
+        start_date, end_date = get_date_range(findings_qs)
     except:
         start_date = timezone.now()
         end_date = timezone.now()
@@ -187,18 +164,18 @@ def finding_querys(prod_type, request):
                                                  test__engagement__product__prod_type__in=prod_type).prefetch_related(
             'test__engagement__product')
         # capture the accepted findings in period
-        accepted_findings = Finding.objects.filter(risk_acceptance__created__date__range=[start_date, end_date],
+        accepted_findings = Finding.objects.filter(risk_accepted=True, date__range=[start_date, end_date],
                                                    test__engagement__product__prod_type__in=prod_type). \
             prefetch_related('test__engagement__product')
-        accepted_findings_counts = Finding.objects.filter(risk_acceptance__created__date__range=[start_date, end_date],
+        accepted_findings_counts = Finding.objects.filter(risk_accepted=True, date__range=[start_date, end_date],
                                                           test__engagement__product__prod_type__in=prod_type). \
             prefetch_related('test__engagement__product')
     else:
         findings_closed = Finding.objects.filter(mitigated__date__range=[start_date, end_date]).prefetch_related(
             'test__engagement__product')
-        accepted_findings = Finding.objects.filter(risk_acceptance__created__date__range=[start_date, end_date]). \
+        accepted_findings = Finding.objects.filter(risk_accepted=True, date__range=[start_date, end_date]). \
             prefetch_related('test__engagement__product')
-        accepted_findings_counts = Finding.objects.filter(risk_acceptance__created__date__range=[start_date, end_date]). \
+        accepted_findings_counts = Finding.objects.filter(risk_accepted=True, date__range=[start_date, end_date]). \
             prefetch_related('test__engagement__product')
 
     findings_closed = get_authorized_findings(Permissions.Finding_View, findings_closed, request.user)
@@ -215,11 +192,10 @@ def finding_querys(prod_type, request):
     if weeks_between <= 0:
         weeks_between += 2
 
-    monthly_counts = get_period_counts(active_findings_qs, findings_qs, findings_closed, accepted_findings, months_between, start_date,
+    monthly_counts = get_period_counts(findings_qs, findings_closed, accepted_findings, months_between, start_date,
                                        relative_delta='months')
-    weekly_counts = get_period_counts(active_findings_qs, findings_qs, findings_closed, accepted_findings, weeks_between, start_date,
+    weekly_counts = get_period_counts(findings_qs, findings_closed, accepted_findings, weeks_between, start_date,
                                       relative_delta='weeks')
-
     top_ten = get_authorized_products(Permissions.Product_View)
     top_ten = top_ten.filter(engagement__test__finding__verified=True,
                                      engagement__test__finding__false_p=False,
@@ -255,42 +231,20 @@ def endpoint_querys(prod_type, request):
         'finding__reporter')
 
     endpoints_query = get_authorized_endpoint_status(Permissions.Endpoint_View, endpoints_query, request.user)
-
-    active_endpoints_query = Endpoint_Status.objects.filter(mitigated=False,
-                                      finding__severity__in=('Critical', 'High', 'Medium', 'Low', 'Info')).prefetch_related(
-        'finding__test__engagement__product',
-        'finding__test__engagement__product__prod_type',
-        'finding__test__engagement__risk_acceptance',
-        'finding__risk_acceptance_set',
-        'finding__reporter')
-
-    active_endpoints_query = get_authorized_endpoint_status(Permissions.Endpoint_View, active_endpoints_query, request.user)
-
     endpoints = MetricsEndpointFilter(request.GET, queryset=endpoints_query)
-    active_endpoints = MetricsEndpointFilter(request.GET, queryset=active_endpoints_query)
 
     endpoints_qs = queryset_check(endpoints)
-    active_endpoints_qs = queryset_check(active_endpoints)
 
     if not endpoints_qs:
         endpoints = endpoints_query
-        active_endpoints = active_endpoints_query
         endpoints_qs = endpoints if isinstance(endpoints, QuerySet) else endpoints.qs
-        active_endpoints_qs = active_endpoints if isinstance(active_endpoints, QuerySet) else active_endpoints.qs
         messages.add_message(request,
                                      messages.ERROR,
-                                     'All objects have been filtered away. Displaying all objects',
+                                     _('All objects have been filtered away. Displaying all objects'),
                                      extra_tags='alert-danger')
 
     try:
-        start_date = endpoints_qs.earliest('date').date
-        start_date = datetime(start_date.year,
-                            start_date.month, start_date.day,
-                            tzinfo=timezone.get_current_timezone())
-        end_date = endpoints_qs.latest('date').date
-        end_date = datetime(end_date.year,
-                            end_date.month, end_date.day,
-                            tzinfo=timezone.get_current_timezone())
+        start_date, end_date = get_date_range(endpoints_qs)
     except:
         start_date = timezone.now()
         end_date = timezone.now()
@@ -328,15 +282,16 @@ def endpoint_querys(prod_type, request):
     if weeks_between <= 0:
         weeks_between += 2
 
-    monthly_counts = get_period_counts(active_endpoints_qs, endpoints_qs, endpoints_closed, accepted_endpoints, months_between, start_date,
+    monthly_counts = get_period_counts(endpoints_qs, endpoints_closed, accepted_endpoints, months_between, start_date,
                                        relative_delta='months')
-    weekly_counts = get_period_counts(active_endpoints_qs, endpoints_qs, endpoints_closed, accepted_endpoints, weeks_between, start_date,
+    weekly_counts = get_period_counts(endpoints_qs, endpoints_closed, accepted_endpoints, weeks_between, start_date,
                                       relative_delta='weeks')
 
     top_ten = get_authorized_products(Permissions.Product_View)
-    top_ten = top_ten.filter(engagement__test__finding__endpoint_status__mitigated=False,
-                                     engagement__test__finding__endpoint_status__false_positive=False,
-                                     engagement__test__finding__endpoint_status__out_of_scope=False,
+    top_ten = top_ten.filter(engagement__test__finding__status_finding__mitigated=False,
+                                     engagement__test__finding__status_finding__false_positive=False,
+                                     engagement__test__finding__status_finding__out_of_scope=False,
+                                     engagement__test__finding__status_finding__risk_accepted=False,
                                      engagement__test__finding__severity__in=(
                                          'Critical', 'High', 'Medium', 'Low'),
                                      prod_type__in=prod_type)
@@ -428,30 +383,30 @@ def metrics(request, mtype):
     template = 'dojo/metrics.html'
     show_pt_filter = True
     view = identify_view(request)
-    page_name = 'Product Type Metrics by '
+    page_name = _('Metrics')
 
     if mtype != 'All':
         pt = Product_Type.objects.filter(id=mtype)
         request.GET._mutable = True
         request.GET.appendlist('test__engagement__product__prod_type', mtype)
         request.GET._mutable = False
-        mtype = pt[0].name
+        product = pt[0].name
         show_pt_filter = False
-        page_name = '%s Metrics' % mtype
+        page_name = _('%(product_type)s Metrics') % {'product_type': mtype}
         prod_type = pt
     elif 'test__engagement__product__prod_type' in request.GET:
         prod_type = Product_Type.objects.filter(id__in=request.GET.getlist('test__engagement__product__prod_type', []))
     else:
         prod_type = get_authorized_product_types(Permissions.Product_Type_View)
     # legacy code calls has 'prod_type' as 'related_name' for product.... so weird looking prefetch
-    prod_type = prod_type.prefetch_related('prod_type', 'prod_type__authorized_users', 'authorized_users')
+    prod_type = prod_type.prefetch_related('prod_type')
 
     filters = dict()
     if view == 'Finding':
-        page_name += 'Findings'
+        page_name = _('Product Type Metrics by Findings')
         filters = finding_querys(prod_type, request)
     elif view == 'Endpoint':
-        page_name += 'Affected Endpoints'
+        page_name = _('Product Type Metrics by Affected Endpoints')
         filters = endpoint_querys(prod_type, request)
 
     in_period_counts, in_period_details, age_detail = get_in_period_details([
@@ -474,7 +429,7 @@ def metrics(request, mtype):
 
     if 'view' in request.GET and 'dashboard' == request.GET['view']:
         punchcard, ticks = get_punchcard_data(queryset_check(filters['all']), filters['start_date'], filters['weeks_between'], view)
-        page_name = (get_system_setting('team_name')) + " Metrics"
+        page_name = _('%(team_name)s Metrics') % {'team_name': get_system_setting('team_name')}
         template = 'dojo/dashboard-metrics.html'
 
     add_breadcrumb(title=page_name, top_level=not len(request.GET), request=request)
@@ -513,6 +468,7 @@ simple metrics for easy reporting
 @cache_page(60 * 5)  # cache for 5 minutes
 @vary_on_cookie
 def simple_metrics(request):
+    page_name = _('Simple Metrics')
     now = timezone.now()
 
     if request.method == 'POST':
@@ -529,7 +485,7 @@ def simple_metrics(request):
     # count the S0, S1, S2 and S3
     # legacy code calls has 'prod_type' as 'related_name' for product.... so weird looking prefetch
     product_types = get_authorized_product_types(Permissions.Product_Type_View)
-    product_types = product_types.prefetch_related('prod_type', 'prod_type__authorized_users', 'authorized_users')
+    product_types = product_types.prefetch_related('prod_type')
     for pt in product_types:
         total_critical = []
         total_high = []
@@ -547,7 +503,7 @@ def simple_metrics(request):
                                        out_of_scope=False,
                                        date__month=now.month,
                                        date__year=now.year,
-                                       ).distinct().prefetch_related('test__engagement__product__authorized_users', 'test__engagement__product__prod_type__authorized_users')
+                                       ).distinct()
 
         for f in total:
             if f.severity == "Critical":
@@ -579,11 +535,11 @@ def simple_metrics(request):
 
         findings_by_product_type[pt] = findings_broken_out
 
-    add_breadcrumb(title="Simple Metrics", top_level=True, request=request)
+    add_breadcrumb(title=page_name, top_level=True, request=request)
 
     return render(request, 'dojo/simple_metrics.html', {
         'findings': findings_by_product_type,
-        'name': 'Simple Metrics',
+        'name': page_name,
         'metric': True,
         'user': request.user,
         'form': form,
@@ -613,11 +569,7 @@ def product_type_counts(request):
         form = ProductTypeCountsForm(request.GET)
         if form.is_valid():
             pt = form.cleaned_data['product_type']
-            if not settings.FEATURE_AUTHORIZATION_V2:
-                if not user_is_authorized(request.user, 'view', pt):
-                    raise PermissionDenied
-            else:
-                user_has_permission_or_403(request.user, pt, Permissions.Product_Type_View)
+            user_has_permission_or_403(request.user, pt, Permissions.Product_Type_View)
             month = int(form.cleaned_data['month'])
             year = int(form.cleaned_data['year'])
             first_of_month = first_of_month.replace(month=month, year=year)
@@ -726,10 +678,10 @@ def product_type_counts(request):
             for o in overall_in_pt:
                 aip[o['numerical_severity']] = o['numerical_severity__count']
         else:
-            messages.add_message(request, messages.ERROR, "Please choose month and year and the Product Type.",
+            messages.add_message(request, messages.ERROR, _("Please choose month and year and the Product Type."),
                                  extra_tags='alert-danger')
 
-    add_breadcrumb(title="Bi-Weekly Metrics", top_level=True, request=request)
+    add_breadcrumb(title=_("Bi-Weekly Metrics"), top_level=True, request=request)
 
     return render(request,
                   'dojo/pt_counts.html',
@@ -746,31 +698,23 @@ def product_type_counts(request):
                   )
 
 
-"""
-Greg
-Status: in production
-name self explaintory, only Jim, senior mananger and root user have access to
-view others metrics
-"""
-
-
-@user_passes_test(lambda u: u.is_staff)
 def engineer_metrics(request):
-    # checking if user is super_user
+    # only superusers can select other users to view
     if request.user.is_superuser:
-        users = Dojo_User.objects.filter(is_staff=True).order_by('username')
+        users = Dojo_User.objects.all().order_by('username')
     else:
         return HttpResponseRedirect(reverse('view_engineer', args=(request.user.id,)))
 
-    users = EngineerFilter(request.GET,
-                           queryset=users)
-    paged_users = get_page_items(request, users.qs, 15)
+    users = UserFilter(request.GET, queryset=users)
+    paged_users = get_page_items(request, users.qs, 25)
 
-    add_breadcrumb(title="Engineer Metrics", top_level=True, request=request)
+    add_breadcrumb(title=_("Engineer Metrics"), top_level=True, request=request)
 
     return render(request,
                   'dojo/engineer_metrics.html',
-                  {'users': paged_users})
+                  {'users': paged_users,
+                   "filtered": users,
+                   })
 
 
 """
@@ -782,15 +726,13 @@ and root can view others metrics
 
 
 # noinspection DjangoOrm
-@user_passes_test(lambda u: u.is_staff)
 @cache_page(60 * 5)  # cache for 5 minutes
 @vary_on_cookie
 def view_engineer(request, eid):
     user = get_object_or_404(Dojo_User, pk=eid)
     if not (request.user.is_superuser or
-            request.user.username == 'root' or
             request.user.username == user.username):
-        return HttpResponseRedirect(reverse('engineer_metrics'))
+        raise PermissionDenied()
     now = timezone.now()
 
     findings = Finding.objects.filter(reporter=user, verified=True)
@@ -1087,55 +1029,4 @@ def view_engineer(request, eid):
         'accepted_week_count': accepted_week_count,
         'closed_week_count': closed_week_count,
         'user': request.user,
-    })
-
-
-"""
-Greg
-For tracking issues reported by SEC researchers.
-"""
-
-
-@user_passes_test(lambda u: u.is_staff)
-def research_metrics(request):
-    now = timezone.now()
-    findings = Finding.objects.filter(
-        test__test_type__name='Security Research')
-    findings = findings.filter(date__year=now.year, date__month=now.month)
-    verified_month = findings.filter(verified=True)
-    month_all_by_product, month_all_aggregate = count_findings(findings)
-    month_verified_by_product, month_verified_aggregate = count_findings(
-        verified_month)
-
-    remaining_by_product, remaining_aggregate = count_findings(
-        Finding.objects.filter(mitigated__isnull=True,
-                               test__test_type__name='Security Research'))
-
-    closed_findings = Finding.objects.filter(
-        mitigated__isnull=False,
-        test__test_type__name='Security Research')
-    closed_findings_dict = {'S0': closed_findings.filter(severity='Critical'),
-                            'S1': closed_findings.filter(severity='High'),
-                            'S2': closed_findings.filter(severity='Medium'),
-                            'S3': closed_findings.filter(severity='Low')}
-
-    time_to_close = {}
-    for sev, finds in list(closed_findings_dict.items()):
-        total = 0
-        for f in finds:
-            total += (datetime.date(f.mitigated) - f.date).days
-        if finds.count() != 0:
-            time_to_close[sev] = total / finds.count()
-        else:
-            time_to_close[sev] = 'N/A'
-
-    add_breadcrumb(title="Security Research Metrics", top_level=True, request=request)
-
-    return render(request, 'dojo/research_metrics.html', {
-        'user': request.user,
-        'month_all_by_product': month_all_by_product,
-        'month_verified_by_product': month_verified_by_product,
-        'remaining_by_product': remaining_by_product,
-        'remaining_aggregate': remaining_aggregate,
-        'time_to_close': time_to_close,
     })

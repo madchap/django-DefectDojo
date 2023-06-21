@@ -7,11 +7,11 @@ from django.forms import Widget as form_widget
 from django.forms.utils import flatatt
 from django.http import QueryDict
 from django.template.loader import render_to_string
-from django.utils.encoding import force_text
+from django.utils.encoding import force_str
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from dojo.filters import EndpointFilter, ReportAuthedFindingFilter
+from dojo.filters import EndpointFilter, ReportFindingFilter
 from dojo.forms import CustomReportOptionsForm
 from dojo.models import Endpoint, Finding
 from dojo.utils import get_page_items, get_words_for_field
@@ -65,38 +65,38 @@ class Div(form_widget):
         final_attrs = self.build_attrs(attrs)
         return format_html(
             '<div class="btn-toolbar" data-role="editor-toolbar" data-target=""><div class="btn-group">'
-            '<a class="btn btn-default" data-edit="bold" title="Bold (Ctrl/Cmd+B)"><i class="fa fa-bold"></i></a>'
-            '<a class="btn btn-default" data-edit="italic" title="Italic (Ctrl/Cmd+I)"><i class="fa fa-italic"></i></a>'
+            '<a class="btn btn-default" data-edit="bold" title="Bold (Ctrl/Cmd+B)"><i class="fa-solid fa-bold"></i></a>'
+            '<a class="btn btn-default" data-edit="italic" title="Italic (Ctrl/Cmd+I)"><i class="fa-solid fa-italic"></i></a>'
             '<a class="btn btn-default" data-edit="strikethrough" title="Strikethrough">'
-            '<i class="fa fa-strikethrough"></i></a>'
+            '<i class="fa-solid fa-strikethrough"></i></a>'
             '<a class="btn btn-default" data-edit="underline" title="Underline (Ctrl/Cmd+U)">'
-            '<i class="fa fa-underline"></i></a></div><div class="btn-group">'
+            '<i class="fa-solid fa-underline"></i></a></div><div class="btn-group">'
             '<a class="btn btn-default" data-edit="insertunorderedlist" title="Bullet list">'
-            '<i class="fa fa-list-ul"></i></a>'
+            '<i class="fa-solid fa-list-ul"></i></a>'
             '<a class="btn btn-default" data-edit="insertorderedlist" title="Number list">'
-            '<i class="fa fa-list-ol"></i></a>'
-            '<a class="btn btn-default" data-edit="outdent" title="Reduce indent (Shift+Tab)"><i class="fa fa-outdent">'
-            '</i></a><a class="btn btn-default" data-edit="indent" title="Indent (Tab)"><i class="fa fa-indent"></i>'
+            '<i class="fa-solid fa-list-ol"></i></a>'
+            '<a class="btn btn-default" data-edit="outdent" title="Reduce indent (Shift+Tab)"><i class="fa-solid fa-outdent">'
+            '</i></a><a class="btn btn-default" data-edit="indent" title="Indent (Tab)"><i class="fa-solid fa-indent"></i>'
             '</a></div><div class="btn-group">'
             '<a class="btn btn-default" data-edit="justifyleft" title="Align Left (Ctrl/Cmd+L)">'
-            '<i class="fa fa-align-left"></i></a>'
+            '<i class="fa-solid fa-align-left"></i></a>'
             '<a class="btn btn-default" data-edit="justifycenter" title="Center (Ctrl/Cmd+E)">'
-            '<i class="fa fa-align-center"></i></a>'
+            '<i class="fa-solid fa-align-center"></i></a>'
             '<a class="btn btn-default" data-edit="justifyright" title="Align Right (Ctrl/Cmd+R)">'
-            '<i class="fa fa-align-right"></i></a>'
+            '<i class="fa-solid fa-align-right"></i></a>'
             '<a class="btn btn-default" data-edit="justifyfull" title="Justify (Ctrl/Cmd+J)">'
-            '<i class="fa fa-align-justify"></i></a></div><div class="btn-group">'
+            '<i class="fa-solid fa-align-justify"></i></a></div><div class="btn-group">'
             '<a class="btn btn-default dropdown-toggle" data-toggle="dropdown" title="Hyperlink">'
-            '<i class="fa fa-link"></i></a><div class="dropdown-menu input-append">'
+            '<i class="fa-solid fa-link"></i></a><div class="dropdown-menu input-append">'
             '<input placeholder="URL" type="text" data-edit="createLink" />'
             '<button class="btn" type="button">Add</button></div></div><div class="btn-group">'
             '<a class="btn btn-default" data-edit="unlink" title="Remove Hyperlink">'
-            '<i class="fa fa-unlink"></i></a></div><div class="btn-group">'
+            '<i class="fa-solid fa-link-slash"></i></a></div><div class="btn-group">'
             '<a class="btn btn-default" data-edit="undo" title="Undo (Ctrl/Cmd+Z)">'
-            '<i class="fa fa-undo"></i></a><a class="btn btn-default" data-edit="redo" title="Redo (Ctrl/Cmd+Y)">'
-            '<i class="fa fa-repeat"></i></a></div><br/><br/></div><div{}>\r\n{}</div>',
+            '<i class="fa-solid fa-rotate-left"></i></a><a class="btn btn-default" data-edit="redo" title="Redo (Ctrl/Cmd+Y)">'
+            '<i class="fa-solid fa-rotate-right"></i></a></div><br/><br/></div><div{}>\r\n{}</div>',
             flatatt(final_attrs),
-            force_text(value))
+            force_str(value))
 
 
 class WYSIWYGContentForm(forms.Form):
@@ -145,7 +145,7 @@ class PageBreak(Widget):
         return mark_safe(
             "<div data-multiple='true'  class='panel panel-available-widget'><div class='panel-heading' title='Click "
             "and drag to move' data-toggle='tooltip'><div class='clearfix'><h5 style='width: 90%' class='pull-left'>" +
-            self.get_html() + "</h5><span class='fa fa-arrows pull-right icon'></span></div></div>"
+            self.get_html() + "</h5><span class='fa-solid fa-up-down-left-right pull-right icon'></span></div></div>"
                               "<form id='page-break'><input type='hidden' name='page-break'/></form></div>")
 
 
@@ -277,8 +277,8 @@ class FindingList(Widget):
         self.multiple = 'true'
         self.extra_help = "You can use this form to filter findings and select only the ones to be included in the " \
                           "report."
-        self.title_words = get_words_for_field(self.findings.qs, 'title')
-        self.component_words = get_words_for_field(self.findings.qs, 'component_name')
+        self.title_words = get_words_for_field(Finding, 'title')
+        self.component_words = get_words_for_field(Finding, 'component_name')
 
         if self.request is not None:
             self.paged_findings = get_page_items(self.request, self.findings.qs, 25)
@@ -402,13 +402,13 @@ def report_widget_factory(json_data=None, request=None, user=None, finding_notes
             d = QueryDict(mutable=True)
             for item in widget.get(list(widget.keys())[0]):
                 if item['name'] in d:
-                    d.getlist(item['name']).append(item['value'])
+                    d.appendlist(item['name'], item['value'])
                 else:
                     d[item['name']] = item['value']
             from dojo.endpoint.views import get_endpoint_ids
             ids = get_endpoint_ids(endpoints)
 
-            endpoints = Endpoint.objects.filter(id__in=ids)
+            endpoints = Endpoint.objects.filter(id__in=endpoints)
             endpoints = EndpointFilter(d, queryset=endpoints, user=request.user)
             user_id = user.id if user is not None else None
             endpoints = EndpointList(request=request, endpoints=endpoints, finding_notes=finding_notes,
@@ -421,11 +421,11 @@ def report_widget_factory(json_data=None, request=None, user=None, finding_notes
             d = QueryDict(mutable=True)
             for item in widget.get(list(widget.keys())[0]):
                 if item['name'] in d:
-                    d.getlist(item['name']).append(item['value'])
+                    d.appendlist(item['name'], item['value'])
                 else:
                     d[item['name']] = item['value']
 
-            findings = ReportAuthedFindingFilter(d, queryset=findings)
+            findings = ReportFindingFilter(d, queryset=findings)
             user_id = user.id if user is not None else None
             selected_widgets[list(widget.keys())[0] + '-' + str(idx)] = FindingList(request=request, findings=findings,
                                                                               finding_notes=finding_notes,

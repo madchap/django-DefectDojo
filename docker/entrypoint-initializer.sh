@@ -1,30 +1,52 @@
 #!/bin/sh
 
-# Allow for bind-mount setting.py overrides
-FILE=/app/docker/extra_settings/settings.dist.py
-if test -f "$FILE"; then
-    echo "============================================================"
-    echo "     Overriding DefectDojo's settings.dist.py with $FILE."
-    echo "============================================================"
-    cp "$FILE" /app/dojo/settings/settings.dist.py
-fi
+initialize_data()
+{
+    # Test types shall be initialized every time by the initializer, to make sure test types are complete
+    # when new parsers have been implemented
+    echo "Initialization of test_types"
+    python3 manage.py initialize_test_types
 
-# Allow for bind-mount setting.py overrides
-FILE=/app/docker/extra_settings/settings.py
-if test -f "$FILE"; then
-    echo "============================================================"
-    echo "     Overriding DefectDojo's settings.py with $FILE."
-    echo "============================================================"
-    cp "$FILE" /app/dojo/settings/settings.py
-fi
+    # Non-standard permissions cannot be created with a database migration, because the content type will only
+    # be available after the dojo migrations
+    echo "Creation of non-standard permissions"
+    python3 manage.py initialize_permissions
+}
 
-# Allow for bind-mount setting.py overrides
-FILE=/app/docker/extra_settings/local_settings.py
-if test -f "$FILE"; then
+create_announcement_banner() 
+{
+# Load the announcement banner
+if [ -z "$DD_CREATE_CLOUD_BANNER" ]; then
+echo "Creating Announcement Banner"
+cat <<EOD | python3 manage.py shell
+from dojo.models import Announcement, UserAnnouncement, Dojo_User
+announcement, created = Announcement.objects.get_or_create(id=1)
+announcement.message = '<a href="https://www.defectdojo.com/pricing" target="_blank">Cloud and On-Premise Subscriptions Now Available! Click here for more details</a>'
+announcement.dismissable = True
+announcement.save()
+for dojo_user in Dojo_User.objects.all():
+    user_announcments = UserAnnouncement.objects.filter(
+        user=dojo_user,
+        announcement=announcement)
+    if user_announcments.count() == 0:
+        UserAnnouncement.objects.get_or_create(
+            user=dojo_user,
+            announcement=announcement)
+EOD
+fi
+}
+
+# Allow for bind-mount multiple settings.py overrides
+FILES=$(ls /app/docker/extra_settings/* 2>/dev/null)
+NUM_FILES=$(echo "$FILES" | wc -w)
+if [ "$NUM_FILES" -gt 0 ]; then
+    COMMA_LIST=$(echo $FILES | tr -s '[:blank:]' ', ')
     echo "============================================================"
-    echo "     Overriding DefectDojo's local_settings.py with $FILE."
+    echo "     Overriding DefectDojo's local_settings.py with multiple"
+    echo "     Files: $COMMA_LIST"
     echo "============================================================"
-    cp "$FILE" /app/dojo/settings/local_settings.py
+    cp /app/docker/extra_settings/* /app/dojo/settings/
+    rm -f /app/dojo/settings/README.md
 fi
 
 umask 0002
@@ -57,6 +79,8 @@ then
     echo "Admin password: Initialization detected that the admin user ${DD_ADMIN_USER} already exists in your database."
     echo "If you don't remember the ${DD_ADMIN_USER} password, you can create a new superuser with:"
     echo "$ docker-compose exec uwsgi /bin/bash -c 'python manage.py createsuperuser'"
+    create_announcement_banner
+    initialize_data
     exit
 fi
 
@@ -87,14 +111,11 @@ User.objects.create_superuser(
 )
 EOD
 
-  echo "Preparing survey fixture"
-  # surveys fixture needs to be modified as it contains an instance dependant polymorphic content id
-  python3 manage.py import_surveys
   # load surveys all at once as that's much faster
    echo "Importing fixtures all at once"
    python3 manage.py loaddata system_settings initial_banner_conf product_type test_type \
        development_environment benchmark_type benchmark_category benchmark_requirement \
-       language_type objects_review regulation initial_surveys
+       language_type objects_review regulation initial_surveys role
 
   echo "UPDATE dojo_system_settings SET jira_webhook_secret='$DD_JIRA_WEBHOOK_SECRET'" | python manage.py dbshell
 
@@ -107,4 +128,11 @@ EOD
 
   echo "Installing watson search index"
   python3 manage.py installwatson
+
+  # surveys fixture needs to be modified as it contains an instance dependant polymorphic content id
+  echo "Migration of textquestions for surveys"
+  python3 manage.py migrate_textquestions
+
+  create_announcement_banner
+  initialize_data
 fi

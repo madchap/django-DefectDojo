@@ -5,6 +5,7 @@
 {% load static %}
 
 {% block add_styles %}
+    {{ block.super }}
     .chosen-container {
     width: 70% !important;
     }
@@ -13,9 +14,11 @@
     }
 {% endblock %}
 {% block add_css %}
+    {{ block.super }}
     <link rel="stylesheet" href="{% static 'easymde/dist/easymde.min.css' %}">
 {% endblock %}
 {% block content %}
+    {{ block.super }}
     {% if risk_acceptance.is_expired %}
         <div class="danger-zone panel panel-danger">
             <div class="panel-heading">
@@ -57,7 +60,7 @@
                     <div class="dropdown pull-right">
                         <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenu1"
                                 data-toggle="dropdown" aria-expanded="true">
-                            <span class="fa fa-bars"></span>
+                            <span class="fa-solid fa-bars"></span>
                             <span class="caret"></span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-right" role="menu" aria-labelledby="dropdownMenu1">
@@ -79,18 +82,18 @@
                         <th>Findings</th>
                         <th>Proof</th>
                         <th>Reactivate
-                            <i class="fa fa-question-circle has-popover" data-trigger="hover" data-content="Reactivate findings when risk acceptance expires?" data-placement="right" data-container="body" data-original-title="" title="">
+                            <i class="fa-solid fa-circle-question has-popover" data-trigger="hover" data-content="Reactivate findings when risk acceptance expires?" data-placement="right" data-container="body" data-original-title="" title="">
                             </i>
                         </th>
                         <th>Restart SLA
-                            <i class="fa fa-question-circle has-popover" data-trigger="hover" data-content="Restart SLA for findings when risk acceptance expires?" data-placement="right" data-container="body" data-original-title="" title="">
+                            <i class="fa-solid fa-circle-question has-popover" data-trigger="hover" data-content="Restart SLA for findings when risk acceptance expires?" data-placement="right" data-container="body" data-original-title="" title="">
                             </i>
                         </th>
                         <th>Owner</th>
                     </tr>
                     <tr>
                         <td>{{ risk_acceptance.created|date }}</td>
-                        <td>{{ risk_acceptance.accepted_by.get_full_name }}</td>
+                        <td>{{ risk_acceptance.accepted_by }}</td>
                         <td>{{ risk_acceptance.name }}</td>
                         <td>{{ risk_acceptance.get_decision_display|default_if_none:"" }}</td>
                         <!-- <td>{{ risk_acceptance.decision_details|default_if_none:""| truncatechars_html:100 }}</td> -->
@@ -181,7 +184,7 @@
                         <td>{{ finding.active }}</td>
 
                         <td>
-                            {% if engagement|has_object_permission:"Risk_Acceptance" or user|is_authorized_for_staff:risk_acceptance %}
+                            {% if engagement|has_object_permission:"Risk_Acceptance" %}
                                 <form method="post">
                                     {% csrf_token %}
                                     <input type="hidden" name="remove_finding_id" value="{{ finding.id }}"/>
@@ -206,7 +209,7 @@
         {% endif %}
     </div>
 
-    {% if engagement|has_object_permission:"Risk_Acceptance" or user|is_authorized_for_staff:risk_acceptance %}
+    {% if engagement|has_object_permission:"Risk_Acceptance" %}
         <div class="panel panel-default">
             <div class="panel-heading">
                 <h3>Accept Additional Findings</h3>
@@ -247,7 +250,7 @@
                         {{ risk_acceptance.created }}
                     </td>
                     <td>
-                        {% if engagement|has_object_permission:"Risk_Acceptance" or user|is_authorized_for_staff:risk_acceptance %}
+                        {% if engagement|has_object_permission:"Risk_Acceptance" %}
                             <form id="replace_risk_file" enctype="multipart/form-data" method="post">
                                 {% csrf_token %}
                                 <label class="btn btn-sm btn-primary">
@@ -296,7 +299,7 @@
                             {{ note }}
                         </td>
                         <td>
-                            {% if engagement|has_object_permission:"Risk_Acceptance" or user|is_authorized_for_staff:risk_acceptance %}
+                            {% if engagement|has_object_permission:"Risk_Acceptance" %}
                                 <form method="post">
                                     {% csrf_token %}
                                     <input type="hidden" name="delete_note_id" value="{{ note.id }}"/>
@@ -328,6 +331,7 @@
 {% endblock %}
 
 {% block postscript %}
+    {{ block.super }}
 {% if not edit_mode %}
     <script type="text/javascript">
         // keyboard shortcuts

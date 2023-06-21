@@ -1,7 +1,6 @@
 import json
 import logging
 import base64
-from urllib.parse import urlparse
 
 from dojo.models import Endpoint, Finding
 
@@ -35,7 +34,10 @@ class BurpApiParser(object):
         items = []
         # for each issue found
         for issue_event in tree.get("issue_events", list()):
-            if "issue_found" == issue_event.get("type") and "issue" in issue_event:
+            if (
+                "issue_found" == issue_event.get("type")
+                and "issue" in issue_event
+            ):
                 issue = issue_event.get("issue")
 
                 title = issue.get("name", "Burp issue")
@@ -74,20 +76,27 @@ class BurpApiParser(object):
                     finding.scanner_confidence = convert_confidence(issue)
                 # manage endpoints
                 if "origin" in issue and "path" in issue:
-                    parts = urlparse(issue.get("origin") + issue.get("path"))
-                    finding.unsaved_endpoints = [Endpoint(protocol=parts.scheme,
-                                                            host=parts.netloc,
-                                                            path=parts.path,
-                                                            query=parts.query,
-                                                            fragment=parts.fragment)
-                                                 ]
+                    finding.unsaved_endpoints = [
+                        Endpoint.from_uri(
+                            issue.get("origin") + issue.get("path")
+                        )
+                    ]
                 finding.unsaved_req_resp = []
-                for evidence in issue.get('evidence', []):
-                    if not evidence.get('type') in ['InformationListEvidence', "FirstOrderEvidence"]:
+                for evidence in issue.get("evidence", []):
+                    if not evidence.get("type") in [
+                        "InformationListEvidence",
+                        "FirstOrderEvidence",
+                    ]:
                         continue
-                    request = self.get_clean_base64(evidence.get('request_response').get('request'))
-                    response = self.get_clean_base64(evidence.get('request_response').get('response'))
-                    finding.unsaved_req_resp.append({"req": request, "resp": response})
+                    request = self.get_clean_base64(
+                        evidence.get("request_response").get("request")
+                    )
+                    response = self.get_clean_base64(
+                        evidence.get("request_response").get("response")
+                    )
+                    finding.unsaved_req_resp.append(
+                        {"req": request, "resp": response}
+                    )
 
                 items.append(finding)
         return items
@@ -103,7 +112,9 @@ class BurpApiParser(object):
                 elif segment["type"] == "HighlightSegment":
                     output += "\n\n------------------------------------------------------------------\n\n"
                 else:
-                    raise ValueError(f"uncknown segment type in Burp data {segment['type']}")
+                    raise ValueError(
+                        f"uncknown segment type in Burp data {segment['type']}"
+                    )
         return output
 
 
@@ -122,10 +133,10 @@ def convert_severity(issue):
              ]
           },
     """
-    value = issue.get('severity', 'info').lower()
+    value = issue.get("severity", "info").lower()
     if value in ["high", "medium", "low", "info"]:
         return value.title()
-    return 'Info'
+    return "Info"
 
 
 def convert_confidence(issue):
@@ -141,7 +152,7 @@ def convert_confidence(issue):
              ]
           },
     """
-    value = issue.get('confidence', 'undefined').lower()
+    value = issue.get("confidence", "undefined").lower()
     if "certain" == value:
         return 2
     elif "firm" == value:

@@ -34,7 +34,6 @@ class TwistlockCSVParser(object):
 
         finding = Finding(
             title=textwrap.shorten(title, width=255, placeholder="..."),
-            cve=data_vulnerability_id,
             test=test,
             severity=convert_severity(data_severity),
             description=data_description + "<p> Vulnerable Package: " +
@@ -49,14 +48,14 @@ class TwistlockCSVParser(object):
             mitigated=None,
             severity_justification="(CVSS v3 base score: {})".format(data_cvss),
             impact=data_severity)
-
         finding.description = finding.description.strip()
+        if data_vulnerability_id:
+            finding.unsaved_vulnerability_ids = [data_vulnerability_id]
 
         return finding
 
     def parse(self, filename, test):
         if filename is None:
-            self.items = ()
             return
         content = filename.read()
         dupes = dict()
@@ -88,25 +87,19 @@ class TwistlockJsonParser(object):
             except:
                 tree = json.loads(data)
         except:
-            raise Exception("Invalid format")
+            raise ValueError("Invalid format")
 
         return tree
 
     def get_items(self, tree, test):
         items = {}
         if 'results' in tree:
-            try:
-                vulnerabilityTree = tree['results'][0]['vulnerabilities']
-
-                for node in vulnerabilityTree:
-
-                    item = get_item(node, test)
-                    unique_key = node['id'] + str(node['packageName'] + str(
-                        node['packageVersion']) + str(node['severity']))
-                    items[unique_key] = item
-            except KeyError as ke:
-                logger.warn("Could not find key {}".format(ke))
-
+            vulnerabilityTree = tree['results'][0].get('vulnerabilities', [])
+            for node in vulnerabilityTree:
+                item = get_item(node, test)
+                unique_key = node['id'] + str(node['packageName'] + str(
+                    node['packageVersion']) + str(node['severity']))
+                items[unique_key] = item
         return list(items.values())
 
 
@@ -120,14 +113,13 @@ def get_item(vulnerability, test):
     # create the finding object
     finding = Finding(
         title=vulnerability['id'] + ": " + vulnerability['packageName'] + " - " + vulnerability['packageVersion'],
-        cve=vulnerability['id'],
         test=test,
         severity=severity,
         description=vulnerability['description'] + "<p> Vulnerable Package: " +
         vulnerability['packageName'] + "</p><p> Current Version: " + str(
             vulnerability['packageVersion']) + "</p>",
         mitigation=status.title(),
-        references=vulnerability['link'],
+        references=vulnerability.get('link'),
         component_name=vulnerability['packageName'],
         component_version=vulnerability['packageVersion'],
         false_p=False,
@@ -136,7 +128,7 @@ def get_item(vulnerability, test):
         mitigated=None,
         severity_justification="{} (CVSS v3 base score: {})\n\n{}".format(vector, cvss, riskFactors),
         impact=severity)
-
+    finding.unsaved_vulnerability_ids = [vulnerability['id']]
     finding.description = finding.description.strip()
 
     return finding
@@ -178,4 +170,4 @@ class TwistlockParser(object):
         elif filename.name.lower().endswith('.csv'):
             return TwistlockCSVParser().parse(filename, test)
         else:
-            raise Exception('Unknown File Format')
+            raise ValueError('Unknown File Format')
