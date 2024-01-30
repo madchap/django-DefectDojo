@@ -36,16 +36,16 @@ Markdown==3.4.4
 mysqlclient==2.1.1
 openpyxl==3.1.2
 xlrd==1.2.0
-Pillow==10.0.0  # required by django-imagekit
+Pillow==10.2.0  # required by django-imagekit
 psycopg2-binary==2.9.6
-cryptography==41.0.3
+cryptography==42.0.0
 python-dateutil==2.8.2
 pytz==2023.3
 redis==4.6.0
 requests==2.31.0
 sqlalchemy==2.0.19  # Required by Celery broker transport
 supervisor==4.2.5
-urllib3==1.26.11
+urllib3==1.26.18
 uWSGI==2.0.22
 vobject==0.9.6.1
 whitenoise==5.2.0
@@ -53,7 +53,7 @@ titlecase==2.3
 social-auth-app-django==5.2.0
 social-auth-core==4.4.2
 Python-jose==3.3.0
-gitpython==3.1.32
+gitpython==3.1.41
 debugpy==1.6.7
 python-gitlab==3.15.0
 drf_yasg==1.21.5
